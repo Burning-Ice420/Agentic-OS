@@ -1,0 +1,32 @@
+# Rust build artifacts
+/hivemind/target/
+**/target/
+debug/
+*.pdb
+
+# Cargo lock for workspace (keep for binaries, ignore for libraries)
+# Keeping Cargo.lock since this is an application project
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# OS files
+desktop.ini
+ehthumbs.db
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Gemini / AI artifacts
+.gemini/

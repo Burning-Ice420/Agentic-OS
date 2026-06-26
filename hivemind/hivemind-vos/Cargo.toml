@@ -1,0 +1,21 @@
+[package]
+name = "hivemind-vos"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hivemind-kernel = { path = "../hivemind-kernel" }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+axum = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+tower-http = { version = "0.6", features = ["cors"] }
+
+[[bin]]
+name = "hivemind-vos"
+path = "src/main.rs"
