@@ -28,5 +28,8 @@ ehthumbs.db
 # Logs
 *.log
 
+# HiveMind OS runtime disk images
+hivemind/hivemind-os/data.img
+
 # Gemini / AI artifacts
 .gemini/
