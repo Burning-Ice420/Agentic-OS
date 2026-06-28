@@ -95,8 +95,19 @@ struct ObserverApp {
     selected: Option<SelectedNode>,
     pan_offset: egui::Vec2,
     zoom: f32,
+    active_tab: AppTab,
+    notepad_text: String,
+    api_base_url: String,
+    cli_input: String,
+    cli_output: String,
     /// Repaint context for the background thread to request repaints.
     _poll_handle: std::thread::JoinHandle<()>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AppTab {
+    Graph,
+    Workbench,
 }
 
 impl ObserverApp {
@@ -161,13 +172,180 @@ impl ObserverApp {
             selected: None,
             pan_offset: egui::Vec2::ZERO,
             zoom: 1.0,
+            active_tab: AppTab::Graph,
+            notepad_text: String::from(
+                "# HiveMind Notepad\n\nUse this scratchpad while testing shared memory.\n\nTry API CLI commands like:\nGET /hive/snapshot\nGET /hive/memories\nPOST /hive/memories {\"name\":\"Scratch\"}\n",
+            ),
+            api_base_url: "http://localhost:8080".to_string(),
+            cli_input: "GET /hive/snapshot".to_string(),
+            cli_output: String::new(),
             _poll_handle: handle,
         }
+    }
+
+    fn execute_cli(&mut self) {
+        let command = self.cli_input.trim();
+        if command.is_empty() {
+            return;
+        }
+
+        let client = match reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+        {
+            Ok(client) => client,
+            Err(e) => {
+                self.cli_output = format!("Failed to create HTTP client: {e}");
+                return;
+            }
+        };
+
+        let mut parts = command.splitn(3, ' ');
+        let method = parts.next().unwrap_or("").to_uppercase();
+        let path = parts.next().unwrap_or("");
+        let body = parts.next();
+
+        if method != "GET" && method != "POST" {
+            self.cli_output = "Use: GET /path or POST /path {json}".to_string();
+            return;
+        }
+
+        if !path.starts_with('/') {
+            self.cli_output = "Path must start with '/', for example: GET /hive/snapshot".to_string();
+            return;
+        }
+
+        let url = format!("{}{}", self.api_base_url.trim_end_matches('/'), path);
+        let response = if method == "GET" {
+            client.get(&url).send()
+        } else {
+            match body {
+                Some(json) => client
+                    .post(&url)
+                    .header("content-type", "application/json")
+                    .body(json.to_string())
+                    .send(),
+                None => client.post(&url).send(),
+            }
+        };
+
+        match response {
+            Ok(resp) => {
+                let status = resp.status();
+                match resp.text() {
+                    Ok(text) => {
+                        let pretty = serde_json::from_str::<serde_json::Value>(&text)
+                            .ok()
+                            .and_then(|value| serde_json::to_string_pretty(&value).ok())
+                            .unwrap_or(text);
+                        self.cli_output = format!("{method} {path}\nStatus: {status}\n\n{pretty}");
+                    }
+                    Err(e) => {
+                        self.cli_output = format!("Status: {status}\nFailed to read response: {e}");
+                    }
+                }
+            }
+            Err(e) => {
+                self.cli_output = format!("Request failed: {e}");
+            }
+        }
+    }
+
+    fn render_workbench(&mut self, ui: &mut egui::Ui) {
+        egui::Panel::right("workbench_cli_panel")
+            .resizable(true)
+            .default_size(430.0)
+            .min_size(320.0)
+            .frame(
+                egui::Frame::new()
+                    .fill(SIDEBAR_BG)
+                    .inner_margin(egui::Margin::same(12))
+                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(0x30, 0x36, 0x3D))),
+            )
+            .show_inside(ui, |ui| {
+                ui.heading("HiveMind API CLI");
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.label("Base");
+                    ui.text_edit_singleline(&mut self.api_base_url);
+                });
+                ui.add_space(6.0);
+                ui.label("Command");
+                let response = ui.add(
+                    egui::TextEdit::singleline(&mut self.cli_input)
+                        .hint_text("GET /hive/snapshot")
+                        .desired_width(f32::INFINITY),
+                );
+
+                let enter_pressed = response.lost_focus()
+                    && ui.input(|i| i.key_pressed(egui::Key::Enter));
+
+                ui.horizontal(|ui| {
+                    if ui.button("Run").clicked() || enter_pressed {
+                        self.execute_cli();
+                    }
+                    if ui.button("Snapshot").clicked() {
+                        self.cli_input = "GET /hive/snapshot".to_string();
+                        self.execute_cli();
+                    }
+                    if ui.button("Memories").clicked() {
+                        self.cli_input = "GET /hive/memories".to_string();
+                        self.execute_cli();
+                    }
+                });
+
+                ui.add_space(8.0);
+                ui.label("Output");
+                ui.add(
+                    egui::TextEdit::multiline(&mut self.cli_output)
+                        .font(egui::TextStyle::Monospace)
+                        .desired_rows(24)
+                        .desired_width(f32::INFINITY),
+                );
+            });
+
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::new()
+                    .fill(BG_DARK)
+                    .inner_margin(egui::Margin::same(16)),
+            )
+            .show_inside(ui, |ui| {
+                ui.heading("HiveMind Notepad");
+                ui.label("Mouse-friendly scratchpad for test plans, VM notes, shared memory experiments, and prompt drafts.");
+                ui.add_space(8.0);
+                ui.add(
+                    egui::TextEdit::multiline(&mut self.notepad_text)
+                        .font(egui::TextStyle::Monospace)
+                        .desired_rows(32)
+                        .desired_width(f32::INFINITY),
+                );
+            });
     }
 }
 
 impl eframe::App for ObserverApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        egui::Panel::top("top_tabs")
+            .frame(
+                egui::Frame::new()
+                    .fill(BG_DARK)
+                    .inner_margin(egui::Margin::symmetric(12, 8)),
+            )
+            .show_inside(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut self.active_tab, AppTab::Graph, "Graph");
+                    ui.selectable_value(&mut self.active_tab, AppTab::Workbench, "Workbench");
+                    ui.separator();
+                    ui.label(egui::RichText::new("HiveMind Observer").color(AMBER));
+                });
+            });
+
+        if self.active_tab == AppTab::Workbench {
+            self.render_workbench(ui);
+            return;
+        }
+
         let _ctx = ui.ctx().clone();
         // Clone the snapshot for this frame
         let snap = {
