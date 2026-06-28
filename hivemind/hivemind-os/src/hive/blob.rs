@@ -56,7 +56,7 @@ pub struct Blob {
 
 impl Blob {
     pub fn new(id: u64, key: &str, value: BlobValue, owner: u64) -> Self {
-        let tick = *crate::interrupts::TICKS.lock();
+        let tick = crate::interrupts::current_tick();
         Blob {
             id,
             key:             key.to_string(),

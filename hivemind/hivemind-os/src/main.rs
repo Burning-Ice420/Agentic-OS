@@ -45,9 +45,11 @@ pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
     serial_println!("[serial] HiveMind OS v0.1 — boot started");
 
     // --- Hardware interrupts (PIC) ---
+    // Program the PIC now, but keep CPU interrupts disabled until core kernel
+    // state is ready. Early IRQs can otherwise run handlers while paging/heap
+    // setup is still in progress.
     unsafe { interrupts::PICS.lock().initialize() };
-    x86_64::instructions::interrupts::enable();
-    println!("[OK] CPU structures + interrupts initialized");
+    println!("[OK] CPU structures initialized");
 
     // --- Memory management ---
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
@@ -58,10 +60,19 @@ pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
     allocator::init_heap(&mut mapper, &mut frame_allocator)
         .expect("heap initialization failed");
     println!("[OK] Memory management + heap initialized");
+    serial_println!("[boot] heap initialized");
+
+    let mut heap_probe = alloc::vec::Vec::new();
+    heap_probe.push(0x42u8);
+    println!("[OK] Heap allocation probe passed");
+    serial_println!("[boot] heap allocation probe passed: {}", heap_probe[0]);
 
     // --- HiveMind memory kernel ---
+    println!("[..] Starting HiveMind memory kernel...");
+    serial_println!("[boot] starting hive init");
     hive::init();
     println!("[OK] HiveMind memory kernel initialized");
+    serial_println!("[boot] hive init complete");
 
     // --- Mesh networking (COM2 serial between VMs) ---
     net::init();
@@ -86,6 +97,8 @@ pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
     println!("  Memory nodes, blobs, and signals are live.");
     println!("  Run 'run-os.ps1 -VMCount 2' on Windows to start a peer VM.");
     println!();
+
+    println!("[OK] Keyboard polling enabled");
 
     shell::run()
 }

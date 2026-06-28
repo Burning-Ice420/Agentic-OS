@@ -30,7 +30,7 @@ impl MemoryNode {
     }
 
     pub fn write_blob(&mut self, key: &str, value: BlobValue) {
-        let tick = *crate::interrupts::TICKS.lock();
+        let tick = crate::interrupts::current_tick();
         if let Some(blob) = self.blobs.get_mut(key) {
             blob.value         = value;
             blob.modified_tick = tick;

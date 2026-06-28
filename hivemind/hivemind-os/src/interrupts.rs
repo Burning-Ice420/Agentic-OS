@@ -31,6 +31,10 @@ impl InterruptIndex {
 
 pub static TICKS: Mutex<u64> = Mutex::new(0);
 
+pub fn current_tick() -> u64 {
+    x86_64::instructions::interrupts::without_interrupts(|| *TICKS.lock())
+}
+
 // ── IDT ───────────────────────────────────────────────────────────────────────
 
 lazy_static! {

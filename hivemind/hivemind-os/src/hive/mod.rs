@@ -136,7 +136,7 @@ impl Hive {
 
     /// Broadcast a signal from a memory node to all subscribers.
     pub fn broadcast_signal(&mut self, from_id: u64, signal_type: &str, payload: &str) {
-        let tick = *crate::interrupts::TICKS.lock();
+        let tick = crate::interrupts::current_tick();
         self.signal_log.push(Signal {
             from_id,
             signal_type: signal_type.to_string(),
@@ -164,18 +164,27 @@ impl Hive {
 static HIVE: Mutex<Option<Hive>> = Mutex::new(None);
 
 pub fn init() {
+    crate::println!("  [hive] new");
+    crate::serial_println!("[hive] new");
     let mut h = Hive::new();
+    crate::println!("  [hive] create root");
+    crate::serial_println!("[hive] create root");
     // Boot memory: the root node that represents the kernel itself
     let root = h.create_memory("kernel-root", None);
+    crate::println!("  [hive] write version");
+    crate::serial_println!("[hive] write version");
     h.write_blob(root, "version",  BlobValue::Text("0.1".to_string()));
-    h.write_blob(root, "status",   BlobValue::Text("booting".to_string()));
-    *HIVE.lock() = Some(h);
-    // Update status once initialized
-    with_hive(|hive| {
-        if let Some((&id, _)) = hive.memories.iter().next() {
-            hive.write_blob(id, "status", BlobValue::Text("running".to_string()));
-        }
-    });
+    crate::println!("  [hive] write status");
+    crate::serial_println!("[hive] write status");
+    h.write_blob(root, "status",   BlobValue::Text("running".to_string()));
+    crate::println!("  [hive] store global");
+    crate::serial_println!("[hive] store global");
+    // Store the hive — lock scope ends here
+    {
+        *HIVE.lock() = Some(h);
+    }
+    crate::println!("  [hive] done");
+    crate::serial_println!("[hive] done");
 }
 
 /// Run a closure with exclusive access to the global hive.
