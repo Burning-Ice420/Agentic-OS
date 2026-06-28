@@ -44,6 +44,9 @@ Useful shell commands inside `hive>`:
 
 ```text
 help
+ui
+notepad
+desktop
 hive
 mem list
 mem new notes
@@ -66,6 +69,20 @@ time
 ps
 clear
 halt
+```
+
+Inside the in-OS desktop:
+
+```text
+Tab                  switch between notepad and CLI panes
+Esc                  return to the hive shell
+help                 list desktop CLI commands
+hive                 show node/blob/edge counts
+mem list             show memory nodes
+net status           show mesh TX/RX counters
+net send M k value   send a blob to peer VMs over COM2
+note save M k        save the notepad text into hive memory M as blob k
+exit                 return to the hive shell
 ```
 
 ## Host HiveMind Workspace

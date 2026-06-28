@@ -58,12 +58,12 @@ pub fn push_key(c: char) {
     KEYS.lock().push(c);
 }
 
-fn read_key() -> Option<char> {
+pub fn read_key() -> Option<char> {
     use x86_64::instructions::interrupts;
     interrupts::without_interrupts(|| KEYS.lock().pop())
 }
 
-fn poll_keyboard() {
+pub fn poll_keyboard() {
     use lazy_static::lazy_static;
     use pc_keyboard::{layouts, DecodedKey, HandleControl, Keyboard, KeyCode, ScancodeSet1};
     use spin::Mutex;
@@ -94,6 +94,8 @@ fn poll_keyboard() {
                 match key {
                     DecodedKey::Unicode(character) => push_key(character),
                     DecodedKey::RawKey(KeyCode::Backspace) => push_key('\x08'),
+                    DecodedKey::RawKey(KeyCode::Tab) => push_key('\t'),
+                    DecodedKey::RawKey(KeyCode::Escape) => push_key('\x1b'),
                     DecodedKey::RawKey(_) => {}
                 }
             }
@@ -170,6 +172,7 @@ fn execute(line: &str) {
     match parts[0] {
         "help"          => cmd_help(),
         "clear"         => vga_buffer::clear_screen(),
+        "ui" | "desktop" | "notepad" => crate::desktop::run(),
         "hive"          => cmd_hive(),
         "mem" | "m"     => cmd_mem(&parts[1..]),
         "blob" | "b"    => cmd_blob(&parts[1..]),
@@ -221,6 +224,7 @@ fn cmd_help() {
     println!("  ║          HiveMind OS  —  Shell Commands          ║");
     println!("  ╠══════════════════╦═══════════════════════════════╣");
     println!("  ║ hive             ║ Show hive overview            ║");
+    println!("  ║ ui / notepad     ║ Open desktop, notepad, CLI    ║");
     println!("  ║ mem list         ║ List memory nodes             ║");
     println!("  ║ mem new <name>   ║ Create memory node            ║");
     println!("  ║ mem new <n> <id> ║ Create child of node <id>     ║");

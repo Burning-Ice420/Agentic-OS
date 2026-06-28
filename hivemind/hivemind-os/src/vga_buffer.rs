@@ -46,8 +46,8 @@ struct ScreenChar {
     color_code:      ColorCode,
 }
 
-const BUFFER_HEIGHT: usize = 25;
-const BUFFER_WIDTH:  usize = 80;
+pub const BUFFER_HEIGHT: usize = 25;
+pub const BUFFER_WIDTH:  usize = 80;
 
 #[repr(transparent)]
 struct Buffer {
@@ -128,6 +128,20 @@ impl Writer {
             self.buffer.chars[row][col].write(blank);
         }
     }
+
+    fn write_at_byte(&mut self, row: usize, col: usize, byte: u8, fg: Color, bg: Color) {
+        if row >= BUFFER_HEIGHT || col >= BUFFER_WIDTH {
+            return;
+        }
+        let byte = match byte {
+            0x20..=0x7e => byte,
+            _ => b' ',
+        };
+        self.buffer.chars[row][col].write(ScreenChar {
+            ascii_character: byte,
+            color_code: ColorCode::new(fg, bg),
+        });
+    }
 }
 
 impl fmt::Write for Writer {
@@ -164,6 +178,51 @@ pub fn set_color(fg: Color, bg: Color) {
     use x86_64::instructions::interrupts;
     interrupts::without_interrupts(|| {
         WRITER.lock().set_color(fg, bg);
+    });
+}
+
+pub fn clear_screen_with(fg: Color, bg: Color) {
+    use x86_64::instructions::interrupts;
+    interrupts::without_interrupts(|| {
+        let mut w = WRITER.lock();
+        w.set_color(fg, bg);
+        for row in 0..BUFFER_HEIGHT {
+            w.clear_row(row);
+        }
+        w.column_position = 0;
+    });
+}
+
+pub fn put_char_at(row: usize, col: usize, ch: char, fg: Color, bg: Color) {
+    use x86_64::instructions::interrupts;
+    interrupts::without_interrupts(|| {
+        WRITER.lock().write_at_byte(row, col, ch as u8, fg, bg);
+    });
+}
+
+pub fn write_at(row: usize, col: usize, text: &str, fg: Color, bg: Color) {
+    use x86_64::instructions::interrupts;
+    interrupts::without_interrupts(|| {
+        let mut w = WRITER.lock();
+        for (i, byte) in text.bytes().enumerate() {
+            let target_col = col + i;
+            if target_col >= BUFFER_WIDTH {
+                break;
+            }
+            w.write_at_byte(row, target_col, byte, fg, bg);
+        }
+    });
+}
+
+pub fn fill_rect(row: usize, col: usize, height: usize, width: usize, ch: char, fg: Color, bg: Color) {
+    use x86_64::instructions::interrupts;
+    interrupts::without_interrupts(|| {
+        let mut w = WRITER.lock();
+        for y in row..core::cmp::min(row + height, BUFFER_HEIGHT) {
+            for x in col..core::cmp::min(col + width, BUFFER_WIDTH) {
+                w.write_at_byte(y, x, ch as u8, fg, bg);
+            }
+        }
     });
 }
 

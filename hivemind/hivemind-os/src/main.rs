@@ -10,6 +10,7 @@ use core::panic::PanicInfo;
 mod agent;
 mod allocator;
 mod boot_anim;
+mod desktop;
 mod disk;
 mod gdt;
 mod hive;
