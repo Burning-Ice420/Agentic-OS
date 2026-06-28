@@ -63,6 +63,44 @@ fn read_key() -> Option<char> {
     interrupts::without_interrupts(|| KEYS.lock().pop())
 }
 
+fn poll_keyboard() {
+    use lazy_static::lazy_static;
+    use pc_keyboard::{layouts, DecodedKey, HandleControl, Keyboard, KeyCode, ScancodeSet1};
+    use spin::Mutex;
+    use x86_64::instructions::port::Port;
+
+    lazy_static! {
+        static ref KEYBOARD: Mutex<Keyboard<layouts::Us104Key, ScancodeSet1>> =
+            Mutex::new(Keyboard::new(
+                layouts::Us104Key,
+                ScancodeSet1,
+                HandleControl::Ignore,
+            ));
+    }
+
+    let mut keyboard = KEYBOARD.lock();
+    let mut status_port: Port<u8> = Port::new(0x64);
+    let mut data_port: Port<u8> = Port::new(0x60);
+
+    for _ in 0..16 {
+        let status = unsafe { status_port.read() };
+        if status & 0x01 == 0 {
+            break;
+        }
+
+        let scancode = unsafe { data_port.read() };
+        if let Ok(Some(key_event)) = keyboard.add_byte(scancode) {
+            if let Some(key) = keyboard.process_keyevent(key_event) {
+                match key {
+                    DecodedKey::Unicode(character) => push_key(character),
+                    DecodedKey::RawKey(KeyCode::Backspace) => push_key('\x08'),
+                    DecodedKey::RawKey(_) => {}
+                }
+            }
+        }
+    }
+}
+
 // ── Prompt ────────────────────────────────────────────────────────────────────
 
 fn print_prompt() {
@@ -81,13 +119,13 @@ pub fn run() -> ! {
     let mut line = String::new();
 
     loop {
-        x86_64::instructions::hlt(); // wait for next interrupt
+        poll_keyboard();
 
         // Poll COM2 for incoming mesh messages from peer VMs.
         crate::net::poll_and_apply();
 
         // Run all agents approximately once per second (PIT ≈ 18 ticks/sec).
-        let _t = *crate::interrupts::TICKS.lock();
+        let _t = crate::interrupts::current_tick();
         if _t > 0 && _t % 36 == 0 {
             crate::agent::tick_all();
         }
@@ -118,6 +156,10 @@ pub fn run() -> ! {
                 _ => {}
             }
         }
+
+        for _ in 0..50_000 {
+            core::hint::spin_loop();
+        }
     }
 }
 
@@ -135,7 +177,7 @@ fn execute(line: &str) {
         "signal" | "s"  => cmd_signal(&parts[1..]),
         "log"           => cmd_log(),
         "tick"          => {
-            let t = *crate::interrupts::TICKS.lock();
+            let t = crate::interrupts::current_tick();
             println!("  System ticks: {}", t);
         }
         "halt"          => {
@@ -231,7 +273,7 @@ fn cmd_help() {
 
 fn cmd_hive() {
     hive::with_hive(|h| {
-        let tick = *crate::interrupts::TICKS.lock();
+        let tick = crate::interrupts::current_tick();
         println!("  HiveMind OS — kernel hive");
         println!("  Memory nodes : {}", h.memories.len());
         println!("  Total blobs  : {}", h.total_blobs());
@@ -670,7 +712,7 @@ fn cmd_time() {
 }
 
 fn cmd_ps() {
-    let tick = *crate::interrupts::TICKS.lock();
+    let tick = crate::interrupts::current_tick();
     println!("  {:<4} {:<24} {:<6} Triggers", "ID", "Name", "Mem#");
     println!("  {}", "-".repeat(46));
     crate::agent::with_agents(|agents| {
