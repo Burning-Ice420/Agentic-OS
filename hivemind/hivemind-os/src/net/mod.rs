@@ -52,10 +52,16 @@ impl Uart {
     }
 
     #[inline]
-    fn data_ready(&mut self) -> bool { unsafe { self.lsr.read() & 0x01 != 0 } }
+    fn data_ready(&mut self) -> bool {
+        let lsr = unsafe { self.lsr.read() };
+        (lsr & 0x01 != 0) && (lsr != 0xFF)
+    }
 
     #[inline]
-    fn tx_empty(&mut self) -> bool   { unsafe { self.lsr.read() & 0x20 != 0 } }
+    fn tx_empty(&mut self) -> bool {
+        let lsr = unsafe { self.lsr.read() };
+        (lsr & 0x20 != 0) && (lsr != 0xFF)
+    }
 
     fn read_byte(&mut self) -> Option<u8> {
         if self.data_ready() { Some(unsafe { self.data.read() }) } else { None }
@@ -175,12 +181,18 @@ pub fn poll_and_apply() {
     let msgs: Vec<MeshMessage> = interrupts::without_interrupts(|| {
         let mut m   = MESH.lock();
         let mut out = Vec::new();
-        while let Some(b) = m.uart.read_byte() {
-            if let Some(line) = m.accum.push(b) {
-                if let Some(msg) = parse_line(line) {
-                    m.rx_count += 1;
-                    out.push(msg);
+        // Limit reads so we don't stall interrupts indefinitely
+        for _ in 0..256 {
+            match m.uart.read_byte() {
+                Some(b) => {
+                    if let Some(line) = m.accum.push(b) {
+                        if let Some(msg) = parse_line(line) {
+                            m.rx_count += 1;
+                            out.push(msg);
+                        }
+                    }
                 }
+                None => break,
             }
         }
         out
