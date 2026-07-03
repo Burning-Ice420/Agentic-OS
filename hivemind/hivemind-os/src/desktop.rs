@@ -97,10 +97,25 @@ struct DesktopApp {
     m_col:    usize,
     m_row:    usize,
     files_path: String,
+    /// True when the notepad contents match what was last saved to the hive.
+    note_saved: bool,
 }
 
 impl DesktopApp {
     fn new() -> Self {
+        // Restore any previously-saved notepad contents from the hive.
+        let saved_note = hive::with_hive(|h| {
+            h.memories
+                .values()
+                .find(|n| n.name == "notepad")
+                .and_then(|n| n.blobs.get("content"))
+                .and_then(|b| match &b.value {
+                    BlobValue::Text(s) => Some(s.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default()
+        });
+
         let mut app = Self {
             open:     [false; KINDS],
             zorder:   Vec::new(),
@@ -108,13 +123,14 @@ impl DesktopApp {
             wy:       [0; KINDS],
             ww:       [0; KINDS],
             wh:       [0; KINDS],
-            note:     String::new(),
+            note:     saved_note,
             cli:      String::new(),
             logs:     Vec::new(),
             dragging: None,
             m_col:    BUFFER_WIDTH / 2,
             m_row:    BUFFER_HEIGHT / 2,
             files_path: "/".to_string(),
+            note_saved: true,
         };
         for k in 0..KINDS {
             let (x, y, w, h) = DEFAULT_GEOM[k];
@@ -206,10 +222,10 @@ impl DesktopApp {
 
     fn notepad_key(&mut self, c: char) {
         match c {
-            '\n' => { if self.note.len() < NOTE_CAP { self.note.push('\n'); } }
-            '\x08' => { self.note.pop(); }
+            '\n' => { if self.note.len() < NOTE_CAP { self.note.push('\n'); self.note_saved = false; } }
+            '\x08' => { if self.note.pop().is_some() { self.note_saved = false; } }
             c if c.is_ascii() && !c.is_control() => {
-                if self.note.len() < NOTE_CAP { self.note.push(c); }
+                if self.note.len() < NOTE_CAP { self.note.push(c); self.note_saved = false; }
             }
             _ => {}
         }
@@ -259,6 +275,11 @@ impl DesktopApp {
                 // Close box occupies the last 3 columns of the title row.
                 if row == y && col >= x + w - 3 {
                     self.close(k);
+                    return;
+                }
+                // Notepad Save button: [Save] sits just left of the close box.
+                if k == NOTEPAD && row == y && col >= x + w - 10 && col < x + w - 3 {
+                    self.save_note();
                     return;
                 }
                 // Title bar → begin drag.
@@ -386,6 +407,25 @@ impl DesktopApp {
         }
     }
 
+    /// Save the notepad contents into a hive memory node named "notepad".
+    /// The hive auto-persists to disk, so notes survive a reboot.
+    fn save_note(&mut self) {
+        let text = self.note.clone();
+        let bytes = text.len();
+        hive::with_hive(|h| {
+            let id = h
+                .memories
+                .iter()
+                .find(|(_, n)| n.name == "notepad")
+                .map(|(&id, _)| id)
+                .unwrap_or_else(|| h.create_memory("notepad", None));
+            h.write_blob(id, "content", BlobValue::Text(text));
+        });
+        crate::disk::persist::mark_dirty();
+        self.add_log(&format!("Saved {} bytes to hive memory 'notepad'", bytes));
+        self.note_saved = true;
+    }
+
     fn add_log(&mut self, line: &str) {
         if self.logs.len() >= LOG_CAP { self.logs.remove(0); }
         self.logs.push(line.to_string());
@@ -466,6 +506,12 @@ impl DesktopApp {
         let title_bg = if focused { Color::Blue } else { Color::DarkGray };
         vga_buffer::fill_rect(y, x + 1, 1, w.saturating_sub(2), ' ', Color::White, title_bg);
         vga_buffer::write_at(y, x + 2, NAMES[kind], Color::White, title_bg);
+        // Notepad gets a Save button in the title bar (left of the close box).
+        // Green when saved, yellow when there are unsaved edits.
+        if kind == NOTEPAD {
+            let sb = if self.note_saved { Color::LightGreen } else { Color::Yellow };
+            vga_buffer::write_at(y, x + w - 10, "[Save]", Color::Black, sb);
+        }
         // Close box.
         vga_buffer::write_at(y, x + w - 3, "[X]", Color::White, Color::Red);
 
