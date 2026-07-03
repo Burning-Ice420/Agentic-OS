@@ -16,10 +16,12 @@ mod gdt;
 mod hive;
 mod interrupts;
 mod memory;
+mod mouse;
 mod net;
 mod rtc;
 mod serial;
 mod shell;
+mod sysinfo;
 mod vfs;
 mod vga_buffer;
 
@@ -50,6 +52,11 @@ pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
     // state is ready. Early IRQs can otherwise run handlers while paging/heap
     // setup is still in progress.
     unsafe { interrupts::PICS.lock().initialize() };
+    // Unmask only timer (IRQ0), keyboard (IRQ1) and the slave cascade (IRQ2) on
+    // the master; keep the whole slave PIC masked until the mouse driver enables
+    // IRQ12. This keeps unused devices (notably ATA's IRQ14) from interrupting a
+    // driver that is entirely polled.
+    unsafe { interrupts::PICS.lock().write_masks(0xF8, 0xFF) };
     println!("[OK] CPU structures initialized");
 
     // --- Memory management ---
@@ -87,19 +94,47 @@ pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
     vfs::init();
     println!("[OK] VFS initialized (/, /boot, /hive, /user)");
 
-    // --- Disk (ATA slave) ---
+    // --- Disk (ATA slave) + auto-restore of persisted state ---
     if disk::init() {
-        println!("[OK] Data disk detected — type 'load' to restore saved state");
+        match disk::persist::load() {
+            Ok(()) => println!("[OK] Data disk detected — previous state auto-restored"),
+            Err(_) => println!("[OK] Data disk detected — fresh disk (state auto-saves as you work)"),
+        }
     } else {
-        println!("[--] No data disk (run with -drive data.img to enable 'save'/'load')");
+        println!("[--] No data disk (run with -drive data.img to enable persistence)");
     }
+
+    // --- PS/2 mouse (for the desktop UI) ---
+    mouse::init();
+    println!("[OK] PS/2 mouse initialized");
+
+    // --- Per-boot instance identity + system info ---
+    // Sum the usable RAM regions (the map also contains a huge high-address
+    // physical-memory-mapping region, so we must not just take the max address).
+    use bootloader::bootinfo::MemoryRegionType;
+    let total_ram: u64 = boot_info
+        .memory_map
+        .iter()
+        .filter(|r| r.region_type == MemoryRegionType::Usable)
+        .map(|r| r.range.end_addr() - r.range.start_addr())
+        .sum();
+    sysinfo::init(total_ram);
+    sysinfo::with_uuid(|u| {
+        println!("[OK] Instance UUID: {}", u);
+        serial_println!("[boot] instance-uuid={}", u);
+    });
+
     println!();
-    println!("  Type 'help' to see shell commands.");
-    println!("  Memory nodes, blobs, and signals are live.");
+    println!("  Type 'help' to see shell commands.  'ui' opens the desktop.");
+    println!("  PageUp/PageDown scroll the console history.");
     println!("  Run 'run-os.ps1 -VMCount 2' on Windows to start a peer VM.");
     println!();
 
-    println!("[OK] Keyboard polling enabled");
+    // Everything is initialized — turn on hardware interrupts. From here the
+    // keyboard and mouse are fully interrupt-driven (no more polling), so no
+    // long-running command can starve input.
+    x86_64::instructions::interrupts::enable();
+    println!("[OK] Interrupts enabled — keyboard & mouse live");
 
     shell::run()
 }
