@@ -199,6 +199,9 @@ pub fn poll_and_apply() {
     });
 
     // Apply messages outside the MESH lock so we can safely lock HIVE.
+    if !msgs.is_empty() {
+        crate::disk::persist::mark_dirty();
+    }
     for msg in msgs {
         let val = BlobValue::parse(&msg.value);
         hive::with_hive(|h| {

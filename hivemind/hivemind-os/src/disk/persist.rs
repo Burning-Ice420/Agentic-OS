@@ -15,6 +15,7 @@
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use super::{
     is_present, read_sectors, write_sectors,
@@ -27,6 +28,40 @@ use crate::hive::EdgeType;
 use crate::vfs;
 
 const MAGIC: &[u8] = b"HIVEMIND\x01";
+
+// ── Auto-persistence (debounced) ───────────────────────────────────────────────
+//
+// Mutating commands call `mark_dirty()`. The shell loop calls `autosave_tick()`
+// every tick; once the state has been dirty and quiet for `AUTOSAVE_DELAY` ticks
+// it flushes to disk. This gives "it just persists" behaviour without a slow
+// disk write on every single keystroke-command.
+
+static DIRTY:      AtomicBool = AtomicBool::new(false);
+static DIRTY_TICK: AtomicU64  = AtomicU64::new(0);
+
+/// PIT ≈ 18.2 Hz, so ~54 ticks ≈ 3 seconds of quiet before flushing.
+const AUTOSAVE_DELAY: u64 = 54;
+
+/// Flag that persistent state has changed and should be saved soon.
+pub fn mark_dirty() {
+    DIRTY.store(true, Ordering::Relaxed);
+    DIRTY_TICK.store(crate::interrupts::current_tick(), Ordering::Relaxed);
+}
+
+/// Called from the main loop each tick. Flushes to disk once changes have
+/// settled. No-op when there is no data disk or nothing has changed.
+pub fn autosave_tick(now: u64) {
+    if !DIRTY.load(Ordering::Relaxed) || !is_present() {
+        return;
+    }
+    let last = DIRTY_TICK.load(Ordering::Relaxed);
+    if now.wrapping_sub(last) < AUTOSAVE_DELAY {
+        return;
+    }
+    // Clear the flag first; if a change lands during the write it will re-arm.
+    DIRTY.store(false, Ordering::Relaxed);
+    let _ = save();
+}
 
 // ── Save ──────────────────────────────────────────────────────────────────────
 

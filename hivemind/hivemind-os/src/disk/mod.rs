@@ -106,8 +106,12 @@ impl AtaPorts {
     // ── Read one 512-byte sector ──────────────────────────────────────────────
 
     pub fn read_sector(&mut self, lba: u32, buf: &mut [u8; SECTOR_SIZE]) -> Result<(), &'static str> {
-        self.wait_ready()?;
+        // Select the drive *first*, then let the selection settle (~400ns) before
+        // touching the command block. Skipping this delay makes the first read
+        // after a cold IDENTIFY (e.g. auto-load at boot) return zeros.
         self.select_slave_lba28(lba);
+        self.delay_400ns();
+        self.wait_ready()?;
         unsafe {
             self.sector_cnt.write(1);
             self.lba_lo.write((lba & 0xFF) as u8);
@@ -129,8 +133,9 @@ impl AtaPorts {
     // ── Write one 512-byte sector ─────────────────────────────────────────────
 
     pub fn write_sector(&mut self, lba: u32, buf: &[u8; SECTOR_SIZE]) -> Result<(), &'static str> {
-        self.wait_ready()?;
         self.select_slave_lba28(lba);
+        self.delay_400ns();
+        self.wait_ready()?;
         unsafe {
             self.sector_cnt.write(1);
             self.lba_lo.write((lba & 0xFF) as u8);
@@ -172,8 +177,23 @@ impl AtaPorts {
         // Wait for DRQ or ERR
         for _ in 0..10_000u32 {
             let s = self.status();
-            if s & STATUS_DRQ != 0 { return true; }
             if s & STATUS_ERR != 0 { return false; }
+            if s & STATUS_DRQ != 0 {
+                // Drain the 256-word IDENTIFY block. If left in the drive's data
+                // buffer, it corrupts the first real read (auto-load at boot),
+                // which is why reads only worked after an intervening write.
+                // Words 60-61 hold the total addressable LBA28 sector count.
+                let mut w60 = 0u16;
+                let mut w61 = 0u16;
+                for i in 0..256 {
+                    let w: u16 = unsafe { self.data.read() };
+                    if i == 60 { w60 = w; }
+                    if i == 61 { w61 = w; }
+                }
+                let sectors = (w60 as u32) | ((w61 as u32) << 16);
+                DISK_SECTORS.store(sectors, core::sync::atomic::Ordering::Relaxed);
+                return true;
+            }
         }
         false
     }
@@ -184,6 +204,13 @@ unsafe impl Send for AtaPorts {}
 
 static ATA: Mutex<AtaPorts> = Mutex::new(AtaPorts::new());
 static DISK_PRESENT: spin::Mutex<bool> = spin::Mutex::new(false);
+/// Total addressable sectors reported by the drive's IDENTIFY (0 if absent).
+static DISK_SECTORS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+/// Data-disk capacity in bytes (0 if no disk).
+pub fn capacity_bytes() -> u64 {
+    DISK_SECTORS.load(core::sync::atomic::Ordering::Relaxed) as u64 * SECTOR_SIZE as u64
+}
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
