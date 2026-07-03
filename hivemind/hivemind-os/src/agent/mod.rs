@@ -216,16 +216,21 @@ pub fn tick_all() {
         results.push(Fired { idx, cur, actions, name, memory_id });
     }
 
-    // Phase 3 — apply the fired actions to the hive (HIVE lock only).
+    // Phase 3 — apply the fired actions to the hive, record the audit trail, and
+    // propagate each action to peer VMs over the COM2 mesh so the swarm shares
+    // memory: a reaction on one instance triggers reactions on the others.
     let mut audit_events: Vec<AgentEvent> = Vec::new();
+    let mut fired_any = false;
     for r in &results {
         if r.actions.is_empty() {
             continue;
         }
-        hive::with_hive(|h| {
+        fired_any = true;
+        let mem_name = hive::with_hive(|h| {
             for (key, val) in &r.actions {
                 h.write_blob(r.memory_id, key, BlobValue::parse(val));
             }
+            h.memories.get(&r.memory_id).map(|m| m.name.clone())
         });
         for (key, val) in &r.actions {
             audit_events.push(AgentEvent {
@@ -234,7 +239,16 @@ pub fn tick_all() {
                 key:   key.clone(),
                 value: val.clone(),
             });
+            if let Some(name) = &mem_name {
+                crate::net::send_blob(name, key, val);
+            }
         }
+    }
+
+    // Autonomous changes should persist too (the shell only flags command-driven
+    // mutations dirty; a timer-fired agent runs without a command).
+    if fired_any {
+        crate::disk::persist::mark_dirty();
     }
 
     // Phase 4 — write back match state, trigger counts, and audit (RUNTIME lock only).
