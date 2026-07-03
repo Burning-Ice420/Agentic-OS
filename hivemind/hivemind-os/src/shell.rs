@@ -596,8 +596,20 @@ fn cmd_agent(args: &[&str]) {
             crate::agent::tick_all();
             println!("  All agents ticked.");
         }
+        Some("log") | Some("audit") => {
+            crate::agent::with_audit(|events| {
+                if events.is_empty() {
+                    println!("  Agent audit log empty (no agent has fired yet).");
+                    return;
+                }
+                println!("  Agent audit log (last {}):", events.len());
+                for e in events.iter().rev().take(20) {
+                    println!("  t={:<8} {:<16} wrote [{}] = {}", e.tick, e.agent, e.key, e.value);
+                }
+            });
+        }
         Some(other) => {
-            println!("  Unknown agent sub-command: '{}'. Try: list, new, rule, tick", other);
+            println!("  Unknown agent sub-command: '{}'. Try: list, new, rule, tick, log", other);
         }
     }
 }
