@@ -53,6 +53,40 @@ impl KeyRing {
 
 static KEYS: Mutex<KeyRing> = Mutex::new(KeyRing::new());
 
+// ── Special-key encoding ────────────────────────────────────────────────────
+// Non-printable keys are funnelled through the same `char` ring using otherwise
+// unused ASCII control codes. Consumers (shell + desktop) match on these.
+
+pub const KEY_UP:    char = '\u{11}';
+pub const KEY_DOWN:  char = '\u{12}';
+pub const KEY_LEFT:  char = '\u{13}';
+pub const KEY_RIGHT: char = '\u{14}';
+pub const KEY_PGUP:  char = '\u{15}';
+pub const KEY_PGDN:  char = '\u{16}';
+pub const KEY_HOME:  char = '\u{17}';
+pub const KEY_END:   char = '\u{18}';
+pub const KEY_DEL:   char = '\u{7f}';
+
+/// Map a `pc_keyboard` raw (non-Unicode) key to our control-code encoding.
+pub fn rawkey_to_char(code: pc_keyboard::KeyCode) -> Option<char> {
+    use pc_keyboard::KeyCode;
+    Some(match code {
+        KeyCode::Backspace  => '\x08',
+        KeyCode::Escape     => '\x1b',
+        KeyCode::Tab        => '\t',
+        KeyCode::Delete     => KEY_DEL,
+        KeyCode::ArrowUp    => KEY_UP,
+        KeyCode::ArrowDown  => KEY_DOWN,
+        KeyCode::ArrowLeft  => KEY_LEFT,
+        KeyCode::ArrowRight => KEY_RIGHT,
+        KeyCode::PageUp     => KEY_PGUP,
+        KeyCode::PageDown   => KEY_PGDN,
+        KeyCode::Home       => KEY_HOME,
+        KeyCode::End        => KEY_END,
+        _ => return None,
+    })
+}
+
 /// Called from the keyboard interrupt handler.
 pub fn push_key(c: char) {
     KEYS.lock().push(c);
@@ -61,46 +95,6 @@ pub fn push_key(c: char) {
 pub fn read_key() -> Option<char> {
     use x86_64::instructions::interrupts;
     interrupts::without_interrupts(|| KEYS.lock().pop())
-}
-
-pub fn poll_keyboard() {
-    use lazy_static::lazy_static;
-    use pc_keyboard::{layouts, DecodedKey, HandleControl, Keyboard, KeyCode, ScancodeSet1};
-    use spin::Mutex;
-    use x86_64::instructions::port::Port;
-
-    lazy_static! {
-        static ref KEYBOARD: Mutex<Keyboard<layouts::Us104Key, ScancodeSet1>> =
-            Mutex::new(Keyboard::new(
-                layouts::Us104Key,
-                ScancodeSet1,
-                HandleControl::Ignore,
-            ));
-    }
-
-    let mut keyboard = KEYBOARD.lock();
-    let mut status_port: Port<u8> = Port::new(0x64);
-    let mut data_port: Port<u8> = Port::new(0x60);
-
-    for _ in 0..16 {
-        let status = unsafe { status_port.read() };
-        if status & 0x01 == 0 {
-            break;
-        }
-
-        let scancode = unsafe { data_port.read() };
-        if let Ok(Some(key_event)) = keyboard.add_byte(scancode) {
-            if let Some(key) = keyboard.process_keyevent(key_event) {
-                match key {
-                    DecodedKey::Unicode(character) => push_key(character),
-                    DecodedKey::RawKey(KeyCode::Backspace) => push_key('\x08'),
-                    DecodedKey::RawKey(KeyCode::Tab) => push_key('\t'),
-                    DecodedKey::RawKey(KeyCode::Escape) => push_key('\x1b'),
-                    DecodedKey::RawKey(_) => {}
-                }
-            }
-        }
-    }
 }
 
 // ── Prompt ────────────────────────────────────────────────────────────────────
@@ -119,21 +113,33 @@ fn print_prompt() {
 pub fn run() -> ! {
     print_prompt();
     let mut line = String::new();
+    let mut last_tick: u64 = 0;
 
     loop {
-        poll_keyboard();
-
         // Poll COM2 for incoming mesh messages from peer VMs.
         crate::net::poll_and_apply();
 
-        // Run all agents approximately once per second (PIT ≈ 18 ticks/sec).
-        let _t = crate::interrupts::current_tick();
-        if _t > 0 && _t % 36 == 0 {
-            crate::agent::tick_all();
+        // Periodic work, gated on the tick actually advancing so it runs at a
+        // steady rate regardless of how fast the loop spins.
+        let t = crate::interrupts::current_tick();
+        if t != last_tick {
+            last_tick = t;
+            // PIT default ≈ 18.2 Hz → roughly once per second.
+            if t % 18 == 0 {
+                crate::agent::tick_all();
+            }
+            crate::disk::persist::autosave_tick(t);
         }
 
         while let Some(c) = read_key() {
             match c {
+                // ── scrollback navigation ──
+                KEY_PGUP => vga_buffer::scroll_up(),
+                KEY_PGDN => vga_buffer::scroll_down(),
+                KEY_UP   => vga_buffer::scroll_line_up(),
+                KEY_DOWN => vga_buffer::scroll_line_down(),
+                KEY_HOME => vga_buffer::scroll_home(),
+                KEY_END  => vga_buffer::scroll_end(),
                 '\n' => {
                     println!();
                     let trimmed = line.trim().to_string();
@@ -159,9 +165,9 @@ pub fn run() -> ! {
             }
         }
 
-        for _ in 0..50_000 {
-            core::hint::spin_loop();
-        }
+        // Sleep until the next interrupt (timer or keyboard) instead of busy
+        // spinning. Keeps the CPU cool and the keyboard responsive.
+        x86_64::instructions::hlt();
     }
 }
 
@@ -169,6 +175,16 @@ pub fn run() -> ! {
 
 fn execute(line: &str) {
     let parts: Vec<&str> = line.splitn(16, ' ').collect();
+
+    // Commands that change persistent state → flag for the debounced autosave.
+    if matches!(
+        parts[0],
+        "mem" | "m" | "blob" | "b" | "link" | "signal" | "s"
+            | "mkdir" | "touch" | "write" | "rm" | "agent" | "ag"
+    ) {
+        crate::disk::persist::mark_dirty();
+    }
+
     match parts[0] {
         "help"          => cmd_help(),
         "clear"         => vga_buffer::clear_screen(),
@@ -184,7 +200,13 @@ fn execute(line: &str) {
             println!("  System ticks: {}", t);
         }
         "halt"          => {
+            // Flush any pending changes so nothing is lost on shutdown.
+            if crate::disk::is_present() {
+                println!("  Flushing state to disk...");
+                let _ = crate::disk::persist::save();
+            }
             println!("  Halting HiveMind OS. Goodbye.");
+            x86_64::instructions::interrupts::disable();
             loop { x86_64::instructions::hlt(); }
         }
         "net"           => cmd_net(&parts[1..]),
@@ -206,6 +228,8 @@ fn execute(line: &str) {
         "load"          => cmd_load(),
         // ── clock ──
         "time"          => cmd_time(),
+        // ── system info + instance identity ──
+        "sysinfo" | "whoami" | "uuid" => cmd_sysinfo(),
         // ── process list ──
         "ps"            => cmd_ps(),
         other           => {
@@ -253,6 +277,7 @@ fn cmd_help() {
     println!("  ║ save              ║ Persist hive+FS to disk      ║");
     println!("  ║ load              ║ Restore hive+FS from disk    ║");
     println!("  ║ time              ║ Show current RTC date/time   ║");
+    println!("  ║ sysinfo / whoami  ║ Instance UUID + RAM/CPU/disk ║");
     println!("  ║ ps                ║ Show running agents          ║");
     println!("  ║ tick             ║ Show system tick counter      ║");
     println!("  ║ clear            ║ Clear screen                  ║");
@@ -703,6 +728,41 @@ fn cmd_load() {
             vga_buffer::set_color(Color::LightGreen, Color::Black);
         }
     }
+}
+
+fn cmd_sysinfo() {
+    vga_buffer::set_color(Color::Yellow, Color::Black);
+    println!("  HiveMind OS — instance & resources");
+    vga_buffer::set_color(Color::White, Color::Black);
+
+    crate::sysinfo::with_uuid(|u| println!("  Instance UUID : {}", u));
+
+    // CPU brand (CPUID), if available.
+    let mut brand = [0u8; 48];
+    if crate::sysinfo::cpu_brand(&mut brand) {
+        let s = core::str::from_utf8(&brand).unwrap_or("").trim_matches(|c| c == ' ' || c == '\0');
+        println!("  CPU          : {}", s);
+    }
+    println!("  CPU cores    : 1 (single-core kernel)");
+
+    let ram = crate::sysinfo::total_ram();
+    println!("  Usable RAM   : {} MiB ({} bytes)", ram / (1024 * 1024), ram);
+    let heap = crate::sysinfo::heap_size();
+    println!("  Kernel heap  : {} MiB", heap / (1024 * 1024));
+
+    let disk = crate::disk::capacity_bytes();
+    if crate::disk::is_present() && disk > 0 {
+        println!("  Data disk    : {} KiB (ATA slave, present)", disk / 1024);
+    } else if crate::disk::is_present() {
+        println!("  Data disk    : present (size unknown)");
+    } else {
+        println!("  Data disk    : none");
+    }
+
+    let (tx, rx) = crate::net::stats();
+    println!("  Mesh COM2    : tx={} rx={}", tx, rx);
+    println!("  System tick  : {}", crate::interrupts::current_tick());
+    vga_buffer::set_color(Color::LightGreen, Color::Black);
 }
 
 fn cmd_time() {
