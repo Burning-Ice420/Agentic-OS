@@ -186,7 +186,7 @@ fn execute(line: &str) {
     }
 
     match parts[0] {
-        "help"          => cmd_help(),
+        "help"          => cmd_help(&parts[1..]),
         "clear"         => vga_buffer::clear_screen(),
         "ui" | "desktop" | "notepad" => crate::desktop::run(),
         "hive"          => cmd_hive(),
@@ -242,59 +242,69 @@ fn execute(line: &str) {
 
 // ── help ──────────────────────────────────────────────────────────────────────
 
-fn cmd_help() {
+fn cmd_help(args: &[&str]) {
     vga_buffer::set_color(Color::Yellow, Color::Black);
-    println!("  ╔══════════════════════════════════════════════════╗");
-    println!("  ║          HiveMind OS  —  Shell Commands          ║");
-    println!("  ╠══════════════════╦═══════════════════════════════╣");
-    println!("  ║ hive             ║ Show hive overview            ║");
-    println!("  ║ ui / notepad     ║ Open desktop, notepad, CLI    ║");
-    println!("  ║ mem list         ║ List memory nodes             ║");
-    println!("  ║ mem new <name>   ║ Create memory node            ║");
-    println!("  ║ mem new <n> <id> ║ Create child of node <id>     ║");
-    println!("  ║ mem show <id>    ║ Show node + its blobs         ║");
-    println!("  ║ blob write <id> <key> <val>                      ║");
-    println!("  ║                  ║ Write blob to node            ║");
-    println!("  ║ blob read  <id> <key>                            ║");
-    println!("  ║                  ║ Read blob from node           ║");
-    println!("  ║ link <a> <b> <type>                              ║");
-    println!("  ║                  ║ Link nodes (Sync/Signal/      ║");
-    println!("  ║                  ║  Mirror/Dependency)           ║");
-    println!("  ║ signal <id> <type> <msg>                         ║");
-    println!("  ║                  ║ Broadcast signal from node    ║");
-    println!("  ║ log              ║ Show signal log               ║");
-    println!("  ╠══════════════════╩═══════════════════════════════╣");
-    println!("  ║ Filesystem                                       ║");
-    println!("  ║ ls [path]         ║ List directory               ║");
-    println!("  ║ mkdir <name>      ║ Create directory             ║");
-    println!("  ║ touch <name>      ║ Create empty file            ║");
-    println!("  ║ write <name> <content>                           ║");
-    println!("  ║ cat <name>        ║ Read file                    ║");
-    println!("  ║ rm <name>         ║ Remove file or dir           ║");
-    println!("  ║ cd <path>         ║ Change directory             ║");
-    println!("  ║ pwd               ║ Print working directory      ║");
-    println!("  ╠══════════════════╩═══════════════════════════════╣");
-    println!("  ║ save              ║ Persist hive+FS to disk      ║");
-    println!("  ║ load              ║ Restore hive+FS from disk    ║");
-    println!("  ║ time              ║ Show current RTC date/time   ║");
-    println!("  ║ sysinfo / whoami  ║ Instance UUID + RAM/CPU/disk ║");
-    println!("  ║ ps                ║ Show running agents          ║");
-    println!("  ║ tick             ║ Show system tick counter      ║");
-    println!("  ║ clear            ║ Clear screen                  ║");
-    println!("  ║ halt             ║ Halt the OS                   ║");
-    println!("  ╠══════════════════╩═══════════════════════════════╣");
-    println!("  ║ Mesh (VM-to-VM over COM2 serial)                 ║");
-    println!("  ║ net status       ║ TX/RX message counts          ║");
-    println!("  ║ net send <mem> <key> <val>                       ║");
-    println!("  ║                  ║ Broadcast blob to peer VMs    ║");
-    println!("  ╠══════════════════╩═══════════════════════════════╣");
-    println!("  ║ Agents (reactive kernel AI)                      ║");
-    println!("  ║ agent list       ║ List agents + rules           ║");
-    println!("  ║ agent new <name> <mem_id>                        ║");
-    println!("  ║ agent rule <id> <watch> <cond> <akey> <aval>    ║");
-    println!("  ║                  ║ cond: gt:N  lt:N  eq:S  any   ║");
-    println!("  ║ agent tick       ║ Fire all agents now           ║");
-    println!("  ╚══════════════════════════════════════════════════╝");
+    match args.first().copied() {
+        None => {
+            println!("  HiveMind OS — help topics  (type 'help <topic>')");
+            println!("  ─────────────────────────────────────────────────");
+            println!("  help mem     Hive memory: nodes, blobs, links, signals");
+            println!("  help fs      Filesystem: ls, cd, cat, write, rm, ...");
+            println!("  help agent   Reactive agents + audit log");
+            println!("  help net     Mesh networking (VM-to-VM over COM2)");
+            println!("  help sys     System: sysinfo, save/load, time, ps, ...");
+            println!();
+            println!("  Quick: hive | mem list | ui (desktop) | sysinfo | halt");
+            println!("  PageUp / PageDown scroll this console.");
+        }
+        Some("mem") | Some("m") | Some("hive") => {
+            println!("  Hive memory");
+            println!("  hive                        Show hive overview");
+            println!("  mem list                    List memory nodes");
+            println!("  mem new <name> [parent_id]  Create a memory node");
+            println!("  mem show <id>               Show a node + its blobs");
+            println!("  blob write <id> <key> <val> Write a blob to a node");
+            println!("  blob read <id> <key>        Read a blob");
+            println!("  link <a> <b> <type>         Sync|Signal|Mirror|Dependency");
+            println!("  signal <id> <type> <msg>    Broadcast a signal");
+            println!("  log                         Show the signal log");
+        }
+        Some("fs") | Some("file") | Some("files") => {
+            println!("  Filesystem");
+            println!("  ls [path]    cd <path>    pwd");
+            println!("  mkdir <name>   touch <name>   rm <name>");
+            println!("  write <file> <content...>   cat <file>");
+        }
+        Some("agent") | Some("ag") | Some("agents") => {
+            println!("  Agents (reactive kernel AI)");
+            println!("  agent list                  List agents + rules");
+            println!("  agent new <name> <mem_id>   Create an agent");
+            println!("  agent rule <id> <watch> <cond> <akey> <aval>");
+            println!("                              cond: gt:N  lt:N  eq:S  any");
+            println!("  agent tick                  Fire all agents now");
+            println!("  agent log                   Show the agent audit log");
+        }
+        Some("net") | Some("mesh") => {
+            println!("  Mesh (VM-to-VM over COM2 serial)");
+            println!("  net status                  TX/RX message counts");
+            println!("  net send <mem> <key> <val>  Broadcast a blob to peers");
+            println!("  Launch peers:  run-os.ps1 -VMCount 2");
+        }
+        Some("sys") | Some("system") => {
+            println!("  System");
+            println!("  sysinfo / whoami            Instance UUID + RAM/CPU/disk");
+            println!("  save    load                Persist / restore to disk");
+            println!("  time                        RTC date/time");
+            println!("  ps                          Running agents");
+            println!("  tick                        System tick counter");
+            println!("  clear                       Clear screen");
+            println!("  halt                        Halt the OS");
+            println!("  ui / desktop / notepad      Open the mouse desktop");
+        }
+        Some(other) => {
+            println!("  No help topic '{}'. Try: mem  fs  agent  net  sys", other);
+        }
+    }
     vga_buffer::set_color(Color::LightGreen, Color::Black);
 }
 
