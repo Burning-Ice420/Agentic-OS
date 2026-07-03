@@ -1,16 +1,25 @@
 # HiveMind OS - Build and Launch Script
 #
 # Usage:
-#   .\run-os.ps1                   # Single VM (debug build)
-#   .\run-os.ps1 -Release          # Single VM (optimized)
-#   .\run-os.ps1 -VMCount 2        # Two VMs connected via COM2 mesh serial
-#   .\run-os.ps1 -Serial           # Pipe COM1 serial log to this terminal
-#   .\run-os.ps1 -QEMU <path>      # Override QEMU executable path
+#   .\run-os.ps1                       # Single VM, hardware-accelerated (WHPX)
+#   .\run-os.ps1 -Release              # Optimized build
+#   .\run-os.ps1 -VMCount 2            # Two VMs connected via COM2 mesh serial
+#   .\run-os.ps1 -Serial               # Pipe COM1 serial log to this terminal
+#   .\run-os.ps1 -Accel tcg            # Force pure software emulation
+#   .\run-os.ps1 -Memory 512 -Cpus 2 -DiskMB 8
+#   .\run-os.ps1 -QEMU <path>          # Override QEMU executable path
+#
+# Every launched VM is registered under C:\hivemind\instances\ so `hive-cli.ps1`
+# can list running instances, their per-boot UUID and their resource allocation.
 
 param(
     [switch]$Release,
     [switch]$Serial,
     [int]   $VMCount = 1,
+    [int]   $Memory  = 256,           # RAM per VM, in MiB
+    [int]   $Cpus    = 1,             # vCPUs per VM (the kernel itself is single-core)
+    [int]   $DiskMB  = 1,             # data disk size, in MiB
+    [string]$Accel   = "whpx",        # whpx | tcg
     [string]$QEMU    = "C:\msys64\mingw64\bin\qemu-system-x86_64.exe"
 )
 
@@ -79,9 +88,8 @@ Write-Host "      Built: $IMG ($imgSize bytes)" -ForegroundColor Green
 Write-Host ""
 Write-Host "[4/4] Launching QEMU..." -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  Click inside QEMU window for keyboard input" -ForegroundColor DarkCyan
-Write-Host "  Ctrl+Alt+Q or Alt+F4 to exit" -ForegroundColor DarkCyan
-Write-Host "  Ctrl+Alt+G to release mouse" -ForegroundColor DarkCyan
+Write-Host "  Click inside QEMU window for keyboard/mouse input" -ForegroundColor DarkCyan
+Write-Host "  Ctrl+Alt+G to release the mouse, Ctrl+Alt+Q to quit" -ForegroundColor DarkCyan
 Write-Host ""
 
 # Copy boot image to C:\hivemind (QEMU can't handle spaces in paths)
@@ -92,67 +100,114 @@ $BootImg = Join-Path $BootDir "boot.bin"
 Copy-Item -Path $IMG -Destination $BootImg -Force
 Write-Host "  Boot image -> $BootImg" -ForegroundColor Green
 
-# Data disk for save/load
-$DataImg = Join-Path $BootDir "data.img"
+# ── Acceleration ──────────────────────────────────────────────────────────────
+# WHPX (Windows Hypervisor Platform) runs guest code on real hardware. It cannot
+# use an in-kernel IRQ chip, so we pin kernel-irqchip=off. Fall back with -Accel tcg.
+switch ($Accel.ToLower()) {
+    "whpx" { $accelArg = "-accel whpx,kernel-irqchip=off"; $accelName = "WHPX (hardware)" }
+    "tcg"  { $accelArg = "-accel tcg";                     $accelName = "TCG (software)" }
+    default { $accelArg = "-accel $Accel";                 $accelName = $Accel }
+}
+
+# ── Resource allocation ───────────────────────────────────────────────────────
+Write-Host ""
+Write-Host "  Resource allocation per VM:" -ForegroundColor White
+Write-Host "    Acceleration : $accelName" -ForegroundColor Gray
+Write-Host "    Memory       : $Memory MiB" -ForegroundColor Gray
+Write-Host "    vCPUs        : $Cpus  (kernel uses 1)" -ForegroundColor Gray
+Write-Host "    Data disk    : $DiskMB MiB" -ForegroundColor Gray
+Write-Host ""
+
+$baseArgs = "$accelArg -m ${Memory}M -smp $Cpus -no-reboot -no-shutdown"
+$qemuCmd  = "-drive format=raw,file=$BootImg $baseArgs"
+
+# ── Instance registry ─────────────────────────────────────────────────────────
+$InstDir = Join-Path $BootDir "instances"
+if (-not (Test-Path $InstDir)) { New-Item -ItemType Directory -Path $InstDir -Force | Out-Null }
+# Clear stale manifests whose process is gone.
+Get-ChildItem $InstDir -Filter *.json -ErrorAction SilentlyContinue | ForEach-Object {
+    try {
+        $m = Get-Content $_.FullName -Raw | ConvertFrom-Json
+        if (-not (Get-Process -Id $m.pid -ErrorAction SilentlyContinue)) { Remove-Item $_.FullName -Force }
+    } catch { Remove-Item $_.FullName -Force }
+}
+
+function Register-Instance($name, $proc, $serialLog) {
+    $manifest = [ordered]@{
+        name       = $name
+        pid        = $proc.Id
+        serialLog  = $serialLog
+        memoryMB   = $Memory
+        cpus       = $Cpus
+        diskMB     = $DiskMB
+        accel      = $accelName
+        launchedAt = (Get-Date).ToString("s")
+    }
+    $path = Join-Path $InstDir "$($proc.Id).json"
+    $manifest | ConvertTo-Json | Out-File -FilePath $path -Encoding utf8
+    Write-Host "  Registered instance '$name' (pid $($proc.Id)) -> $path" -ForegroundColor DarkGray
+}
+
 $QEMU_IMG = Join-Path (Split-Path $QEMU) "qemu-img.exe"
 
-if (-not (Test-Path $DataImg)) {
-    if (Test-Path $QEMU_IMG) {
-        Write-Host "  Creating 1 MiB data disk..." -ForegroundColor Yellow
-        & $QEMU_IMG create -f raw $DataImg 1M 2>$null | Out-Null
-        Write-Host "  Data disk -> $DataImg" -ForegroundColor Green
-    } else {
-        Write-Host "  [WARN] qemu-img not found, save/load disabled" -ForegroundColor Yellow
+function New-DataDisk($path) {
+    if (-not (Test-Path $path)) {
+        if (Test-Path $QEMU_IMG) {
+            & $QEMU_IMG create -f raw $path "${DiskMB}M" 2>$null | Out-Null
+            Write-Host "  Created ${DiskMB} MiB data disk -> $path" -ForegroundColor Green
+        } else {
+            Write-Host "  [WARN] qemu-img not found, save/load disabled for $path" -ForegroundColor Yellow
+        }
     }
 }
-
-# Build QEMU argument string (flat string avoids PowerShell mangling)
-$qemuCmd = "-drive format=raw,file=$BootImg -m 256M -no-reboot -no-shutdown"
-
-if (Test-Path $DataImg) {
-    $qemuCmd += " -drive file=$DataImg,format=raw,if=ide,index=1"
-    Write-Host "  Data disk attached" -ForegroundColor Green
-}
-
-$serialLog = Join-Path $BootDir "serial.log"
 
 if ($VMCount -ge 2) {
     # ── Multi-VM mode ─────────────────────────────────────────────────────────
     Write-Host "  Launching $VMCount VMs with COM2 mesh (TCP 4444)..." -ForegroundColor Yellow
 
-    $vm1Cmd = "$qemuCmd -serial file:$BootDir\vm1.log -serial tcp::4444,server,nowait"
-    Write-Host "  VM1 (server :4444)..." -ForegroundColor Cyan
-    Start-Process -FilePath $QEMU -ArgumentList $vm1Cmd
-    Start-Sleep -Milliseconds 800
-
-    $vm2Cmd = "$qemuCmd -serial file:$BootDir\vm2.log -serial tcp:127.0.0.1:4444"
-    Write-Host "  VM2 (client)..." -ForegroundColor Cyan
-    Start-Process -FilePath $QEMU -ArgumentList $vm2Cmd
-
-    for ($i = 3; $i -le $VMCount; $i++) {
-        $vmCmd = "$qemuCmd -serial file:$BootDir\vm${i}.log"
-        Write-Host "  VM$i (standalone)..." -ForegroundColor Cyan
-        Start-Process -FilePath $QEMU -ArgumentList $vmCmd
-        Start-Sleep -Milliseconds 300
+    for ($i = 1; $i -le $VMCount; $i++) {
+        $disk = Join-Path $BootDir "data_vm$i.img"
+        New-DataDisk $disk
+        $serialLog = "$BootDir\vm$i.log"
+        $vmArgs = "$qemuCmd -drive file=$disk,format=raw,if=ide,index=1 -serial file:$serialLog"
+        if ($i -eq 1) {
+            $vmArgs += " -serial tcp::4444,server,nowait"
+        } elseif ($i -eq 2) {
+            $vmArgs += " -serial tcp:127.0.0.1:4444"
+        }
+        Write-Host "  VM$i ..." -ForegroundColor Cyan
+        $proc = Start-Process -FilePath $QEMU -ArgumentList $vmArgs -PassThru
+        Register-Instance "vm$i" $proc $serialLog
+        Start-Sleep -Milliseconds 700
     }
 
     Write-Host ""
     Write-Host "  All VMs running." -ForegroundColor Green
-    Write-Host "  Demo: in VM1 type 'net send SensorHub temp 85'" -ForegroundColor White
-    Write-Host "        in VM2 type 'mem list' to see it arrive" -ForegroundColor White
+    Write-Host "  Manage them:  .\hive-cli.ps1 list" -ForegroundColor White
+    Write-Host "  Demo: in VM1 'net send SensorHub temp 85', in VM2 'mem list'" -ForegroundColor White
 
 } else {
     # ── Single VM mode ────────────────────────────────────────────────────────
+    $DataImg = Join-Path $BootDir "data.img"
+    New-DataDisk $DataImg
+    if (Test-Path $DataImg) {
+        $qemuCmd += " -drive file=$DataImg,format=raw,if=ide,index=1"
+        Write-Host "  Data disk attached" -ForegroundColor Green
+    }
+
+    $serialLog = Join-Path $BootDir "serial.log"
     if ($Serial) {
         $qemuCmd += " -serial stdio"
+        Write-Host "  Starting (serial on this terminal)..." -ForegroundColor Green
+        Write-Host ""
+        cmd /c "`"$QEMU`" $qemuCmd"
     } else {
         $qemuCmd += " -serial file:$serialLog"
         Write-Host "  Serial log -> $serialLog" -ForegroundColor Gray
+        Write-Host "  Starting..." -ForegroundColor Green
+        Write-Host ""
+        $proc = Start-Process -FilePath $QEMU -ArgumentList $qemuCmd -PassThru
+        Register-Instance "vm1" $proc $serialLog
+        Write-Host "  Manage it:  .\hive-cli.ps1 list" -ForegroundColor White
     }
-
-    Write-Host "  Starting..." -ForegroundColor Green
-    Write-Host ""
-
-    # Use cmd /c to bypass PowerShell argument parsing entirely
-    cmd /c "`"$QEMU`" $qemuCmd"
 }
