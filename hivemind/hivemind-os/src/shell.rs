@@ -119,6 +119,9 @@ pub fn run() -> ! {
         // Poll COM2 for incoming mesh messages from peer VMs.
         crate::net::poll_and_apply();
 
+        // Poll COM3 for AI-accelerator responses (the slow deliberation tier).
+        crate::llm::poll_and_apply();
+
         // Periodic work, gated on the tick actually advancing so it runs at a
         // steady rate regardless of how fast the loop spins.
         let t = crate::interrupts::current_tick();
@@ -230,6 +233,8 @@ fn execute(line: &str) {
         "time"          => cmd_time(),
         // ── system info + instance identity ──
         "sysinfo" | "whoami" | "uuid" => cmd_sysinfo(),
+        // ── AI accelerator (slow deliberation tier) ──
+        "ai"            => cmd_ai(&parts[1..]),
         // ── process list ──
         "ps"            => cmd_ps(),
         other           => {
@@ -747,6 +752,43 @@ fn cmd_load() {
         Err(e) => {
             vga_buffer::set_color(Color::LightRed, Color::Black);
             println!("  [FAIL] {}", e);
+            vga_buffer::set_color(Color::LightGreen, Color::Black);
+        }
+    }
+}
+
+fn cmd_ai(args: &[&str]) {
+    let id = match args.first().and_then(|s| s.parse::<u64>().ok()) {
+        Some(n) => n,
+        None => {
+            println!("  Usage: ai <memory_id> [prompt...]");
+            println!("  Offloads the node's state to the host LLM; the action it");
+            println!("  returns is applied to the hive (watch for a [AI] line).");
+            return;
+        }
+    };
+    let prompt = if args.len() > 1 { args[1..].join(" ") } else { "decide the next action".to_string() };
+
+    // Gather the memory node's name + blob state as context for the model.
+    let gathered = hive::with_hive(|h| {
+        h.memories.get(&id).map(|m| {
+            let mut ctx = String::new();
+            use core::fmt::Write;
+            for (k, b) in &m.blobs {
+                if !ctx.is_empty() { ctx.push(','); }
+                let _ = write!(ctx, "{}={}", k, b.value.display());
+            }
+            (m.name.clone(), ctx)
+        })
+    });
+
+    match gathered {
+        None => println!("  Memory node {} not found.", id),
+        Some((name, ctx)) => {
+            crate::llm::request(&name, &prompt, &ctx);
+            vga_buffer::set_color(Color::White, Color::Black);
+            println!("  AI request sent for '{}' (task: {}).", name, prompt);
+            println!("  The model's action will apply when the bridge responds.");
             vga_buffer::set_color(Color::LightGreen, Color::Black);
         }
     }

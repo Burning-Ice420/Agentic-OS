@@ -15,6 +15,7 @@ mod disk;
 mod gdt;
 mod hive;
 mod interrupts;
+mod llm;
 mod memory;
 mod mouse;
 mod net;
@@ -85,6 +86,12 @@ pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
     // --- Mesh networking (COM2 serial between VMs) ---
     net::init();
     println!("[OK] Mesh serial (COM2) ready — peer VMs will auto-sync blobs");
+
+    // --- AI accelerator (COM3 serial to a host LLM bridge) ---
+    // The kernel's rule engine stays the fast reflex tier; this offloads heavy
+    // reasoning to a small host-side model, like offloading to a GPU/NPU.
+    llm::init();
+    println!("[OK] AI accelerator (COM3) ready — offloads reasoning to a host model");
 
     // --- Agent runtime ---
     agent::init();
