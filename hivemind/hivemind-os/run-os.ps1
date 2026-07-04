@@ -15,6 +15,7 @@
 param(
     [switch]$Release,
     [switch]$Serial,
+    [switch]$LLM,                    # expose COM3 to the AI-accelerator bridge
     [int]   $VMCount = 1,
     [int]   $Memory  = 256,           # RAM per VM, in MiB
     [int]   $Cpus    = 1,             # vCPUs per VM (the kernel itself is single-core)
@@ -196,13 +197,26 @@ if ($VMCount -ge 2) {
     }
 
     $serialLog = Join-Path $BootDir "serial.log"
+
+    # COM1 = console/serial log. If -LLM, COM2 = null and COM3 = the AI bridge
+    # socket (order matters: -serial args map to COM1, COM2, COM3).
     if ($Serial) {
         $qemuCmd += " -serial stdio"
+    } else {
+        $qemuCmd += " -serial file:$serialLog"
+    }
+    if ($LLM) {
+        $qemuCmd += " -serial null -serial tcp:127.0.0.1:4455,server,nowait"
+        Write-Host "  AI accelerator (COM3) enabled." -ForegroundColor Magenta
+        Write-Host "  In another terminal run:  python hive-llm-bridge.py" -ForegroundColor White
+        Write-Host "  (needs Ollama + a small model, e.g. 'ollama pull llama3.2:1b')" -ForegroundColor DarkGray
+    }
+
+    if ($Serial) {
         Write-Host "  Starting (serial on this terminal)..." -ForegroundColor Green
         Write-Host ""
         cmd /c "`"$QEMU`" $qemuCmd"
     } else {
-        $qemuCmd += " -serial file:$serialLog"
         Write-Host "  Serial log -> $serialLog" -ForegroundColor Gray
         Write-Host "  Starting..." -ForegroundColor Green
         Write-Host ""
