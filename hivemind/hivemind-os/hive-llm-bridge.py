@@ -31,36 +31,47 @@ import time
 import urllib.request
 
 SYSTEM_PROMPT = (
-    "You are the reasoning coprocessor for a kernel agent. You are given a memory "
-    "node's current state and a task. Decide ONE action and reply with EXACTLY one "
-    "line of the form key=value (a short snake_case key and a short value). "
-    "No explanation, no punctuation, just key=value."
+    "You are a decision engine inside an OS kernel. Given a memory node's state and a "
+    "task, reply with ONLY one line 'key=value': a short new snake_case decision key "
+    "and a one-word value. Do not echo the input keys. Do not explain."
 )
 
 
 def call_ollama(host, model, memory, prompt, context):
-    """Return (key, value) from the local model, or None on failure."""
-    user = f"Memory node '{memory}' state: {context or '(empty)'}. Task: {prompt}."
+    """Return (key, value) from the local model, or None on failure.
+
+    Uses the /api/chat endpoint (instruct models follow it far better than a stuffed
+    /api/generate prompt) and is robust to small models that answer with backticks or
+    a bare decision word instead of key=value.
+    """
     body = {
         "model": model,
-        "prompt": f"{SYSTEM_PROMPT}\n\n{user}\n\nAction:",
         "stream": False,
-        "options": {"temperature": 0.2, "num_predict": 32},
+        "options": {"temperature": 0.1, "num_predict": 24},
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"state: {context or '(empty)'}\ntask: {prompt}"},
+        ],
     }
     req = urllib.request.Request(
-        f"{host}/api/generate",
+        f"{host}/api/chat",
         data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json"},
     )
     with urllib.request.urlopen(req, timeout=60) as r:
-        out = json.loads(r.read().decode()).get("response", "")
-    # Lenient parse: first key=value in the model's output.
-    m = re.search(r"([A-Za-z][\w\-]{0,30})\s*=\s*([^\n,;|]{1,40})", out)
+        out = json.loads(r.read().decode()).get("message", {}).get("content", "")
+    out = out.strip().strip("`").strip().strip("'\"")
+
+    # Preferred: an explicit key=value (value is a single token).
+    m = re.search(r"([A-Za-z][\w\-]{0,30})\s*=\s*([^\s\n,;|]{1,40})", out)
     if m:
         return m.group(1).strip(), m.group(2).strip()
-    # Fallback: stash a short note.
-    note = re.sub(r"[|\n\r]", " ", out).strip()[:40] or "no_output"
-    return "ai_note", note
+
+    # The model gave a bare decision word (e.g. "alert"); capture it faithfully.
+    tok = re.sub(r"[^\w\-]", "", out.split()[0]) if out.split() else ""
+    if tok:
+        return "decision", tok[:40]
+    return "ai_note", "no_output"
 
 
 def rule_fallback(memory, prompt, context):
@@ -97,7 +108,10 @@ def main():
 
     buf = b""
     while True:
-        data = sock.recv(4096)
+        try:
+            data = sock.recv(4096)
+        except OSError:
+            data = b""  # guest went away (VM stopped) — exit cleanly
         if not data:
             print("[bridge] guest disconnected.")
             return
