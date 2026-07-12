@@ -37,3 +37,6 @@ hivemind/hivemind-os/data.img
 # Python
 __pycache__/
 *.pyc
+
+# Local docs (kept out of git)
+docs/
