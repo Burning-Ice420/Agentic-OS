@@ -33,3 +33,7 @@ hivemind/hivemind-os/data.img
 
 # Gemini / AI artifacts
 .gemini/
+
+# Python
+__pycache__/
+*.pyc
