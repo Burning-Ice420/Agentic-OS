@@ -24,11 +24,15 @@ Run:
 
 import argparse
 import json
+import os
 import re
 import socket
 import sys
 import time
 import urllib.request
+
+# Slow CPUs (or first model load) can exceed the default; override with HIVE_LLM_TIMEOUT.
+LLM_TIMEOUT = int(os.environ.get("HIVE_LLM_TIMEOUT", "60"))
 
 SYSTEM_PROMPT = (
     "You are a decision engine inside an OS kernel. Given a memory node's state and a "
@@ -58,7 +62,7 @@ def call_ollama(host, model, memory, prompt, context):
         data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=60) as r:
+    with urllib.request.urlopen(req, timeout=LLM_TIMEOUT) as r:
         out = json.loads(r.read().decode()).get("message", {}).get("content", "")
     out = out.strip().strip("`").strip().strip("'\"")
 
