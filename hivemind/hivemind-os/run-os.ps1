@@ -167,14 +167,29 @@ function New-DataDisk($path) {
 
 if ($VMCount -ge 2) {
     # ── Multi-VM mode ─────────────────────────────────────────────────────────
-    Write-Host "  Launching $VMCount VMs with COM2 mesh (TCP 4444)..." -ForegroundColor Yellow
+    if ($Observe) {
+        # Observed swarm: start the mesh HUB + observer feed FIRST, then every VM
+        # connects to it as a COM2 client. The hub relays HMSG between guests (the
+        # real mesh) and records each instance for the observer.
+        $bridge = Join-Path $ROOT "hive-observer-bridge.py"
+        Start-Process -FilePath "python" -ArgumentList "`"$bridge`" --hub --model $Model" -WorkingDirectory $ROOT
+        Write-Host "  Mesh hub + observer feed -> :4444 (mesh) / :8080 (observer), model $Model" -ForegroundColor Magenta
+        Write-Host "  (requires Ollama:  ollama serve )" -ForegroundColor DarkGray
+        Start-Sleep -Milliseconds 1500
+    } else {
+        Write-Host "  Launching $VMCount VMs with COM2 mesh (TCP 4444)..." -ForegroundColor Yellow
+    }
 
     for ($i = 1; $i -le $VMCount; $i++) {
         $disk = Join-Path $BootDir "data_vm$i.img"
         New-DataDisk $disk
         $serialLog = "$BootDir\vm$i.log"
         $vmArgs = "$qemuCmd -drive file=$disk,format=raw,if=ide,index=1 -serial file:$serialLog"
-        if ($i -eq 1) {
+        if ($Observe) {
+            # every VM is a COM2 client of the hub; VM1 also owns the COM3 AI device
+            $vmArgs += " -serial tcp:127.0.0.1:4444"
+            if ($i -eq 1) { $vmArgs += " -serial tcp:127.0.0.1:4455,server,nowait" }
+        } elseif ($i -eq 1) {
             $vmArgs += " -serial tcp::4444,server,nowait"
         } elseif ($i -eq 2) {
             $vmArgs += " -serial tcp:127.0.0.1:4444"
@@ -187,8 +202,24 @@ if ($VMCount -ge 2) {
 
     Write-Host ""
     Write-Host "  All VMs running." -ForegroundColor Green
-    Write-Host "  Manage them:  .\hive-cli.ps1 list" -ForegroundColor White
-    Write-Host "  Demo: in VM1 'net send SensorHub temp 85', in VM2 'mem list'" -ForegroundColor White
+    if ($Observe) {
+        $obs = Join-Path $ROOT "..\target\debug\hivemind-observer.exe"
+        if (Test-Path $obs) {
+            Start-Process -FilePath $obs
+            Write-Host "  Observer GUI launched (reads localhost:8080)" -ForegroundColor White
+        } else {
+            Write-Host "  Observer GUI not built; run 'cargo run -p hivemind-observer' from ..\ " -ForegroundColor DarkGray
+        }
+        Write-Host ""
+        Write-Host "  Watch memory propagate across instances. In VM1's shell:" -ForegroundColor White
+        Write-Host "    net send shared temp 85           -> vm1:shared AND vm2:shared appear, linked" -ForegroundColor Gray
+        Write-Host "    agent new T 1" -ForegroundColor Gray
+        Write-Host "    agent rule 2 temp gt:80 decision ai:overheating decide" -ForegroundColor Gray
+        Write-Host "    blob write 1 temp 95              -> VM1's AI node updates live" -ForegroundColor Gray
+    } else {
+        Write-Host "  Manage them:  .\hive-cli.ps1 list" -ForegroundColor White
+        Write-Host "  Demo: in VM1 'net send SensorHub temp 85', in VM2 'mem list'" -ForegroundColor White
+    }
 
 } else {
     # ── Single VM mode ────────────────────────────────────────────────────────

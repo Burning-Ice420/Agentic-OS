@@ -37,7 +37,6 @@ class Graph:
         self.events = []
         self.llm_calls = 0
         self.recent_actions = []
-        self._upsert("kernel-root")
 
     def _coerce(self, v):
         v = v.strip()
@@ -64,6 +63,14 @@ class Graph:
             self.events.append({"timestamp": int(time.time() * 1000),
                                 "event_type": etype, "description": desc})
             self.events = self.events[-60:]
+
+    def propagate(self, from_name, to_name):
+        """Record that a value crossed the mesh from one instance to another."""
+        with self.lock:
+            f = self._upsert(from_name); t = self._upsert(to_name)
+            e = {"from_id": f["id"], "to_id": t["id"], "edge_type": "Mirror"}
+            if e not in f["edges"]:
+                f["edges"].append(e)
 
     def llm(self, key, value):
         with self.lock:
@@ -100,7 +107,7 @@ def client(port, stop):
     return None
 
 
-def com3_loop(g, port, call, ollama, model, fallback, stop):
+def com3_loop(g, port, call, ollama, model, fallback, stop, prefix=""):
     s = client(port, stop)
     if not s:
         print(f"[obs] COM3 :{port} never connected"); return
@@ -123,21 +130,87 @@ def com3_loop(g, port, call, ollama, model, fallback, stop):
                 continue
             parts = (t[len("LLMREQ|"):].split("|", 2) + ["", "", ""])[:3]
             mem, prompt, ctx = parts
-            g.event("llm_request", f"{mem}: {prompt}")
+            node = f"{prefix}:{mem}" if prefix else mem  # tag by instance in hub mode
+            g.event("llm_request", f"{node}: {prompt}")
             for kv in ctx.split(","):
                 if "=" in kv:
-                    k, v = kv.split("=", 1); g.set_blob(mem, k.strip(), v)
+                    k, v = kv.split("=", 1); g.set_blob(node, k.strip(), v)
             try:
                 key, value = call(ollama, model, mem, prompt, ctx); src = model
             except Exception as e:
                 key, value = fallback(mem, prompt, ctx); src = f"fallback({type(e).__name__})"
             try:
-                s.sendall(f"LLMRSP|{mem}|{key}|{value}\n".encode())
+                s.sendall(f"LLMRSP|{mem}|{key}|{value}\n".encode())  # wire keeps the guest's own name
             except OSError:
                 pass
-            g.set_blob(mem, key, value); g.llm(key, value)
-            g.event("llm_response", f"{mem}: {key}={value} [{src}]")
-            print(f"[obs] LLM {mem}: {key}={value} [{src}]")
+            g.set_blob(node, key, value); g.llm(key, value)
+            g.event("llm_response", f"{node}: {key}={value} [{src}]")
+            print(f"[obs] LLM {node}: {key}={value} [{src}]")
+
+
+def mesh_hub(g, port, stop):
+    """Multi-VM mesh: both guests connect here (COM2 client). We relay every HMSG
+    to the OTHER guests (so the mesh still works) and record it per instance, so the
+    observer shows each instance and the value propagating between them."""
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", port)); srv.listen(8); srv.settimeout(1.0)
+    print(f"[obs] mesh hub listening on :{port} (guests connect as COM2 clients)")
+    clients = {}   # sock -> label
+    counter = [0]
+
+    def handle(sock, label):
+        buf = b""
+        while not stop():
+            try:
+                d = sock.recv(4096)
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            if not d:
+                break
+            buf += d
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                t = line.decode("utf-8", "ignore").strip()
+                if not t.startswith("HMSG|"):
+                    continue
+                p = t[5:].split("|", 2)
+                if len(p) != 3:
+                    continue
+                mem, key, val = p
+                g.set_blob(f"{label}:{mem}", key, val)
+                g.event("mesh_broadcast", f"{label} -> {mem}: {key}={val}")
+                print(f"[obs] MESH {label}: {mem}.{key}={val}")
+                raw = (t + "\n").encode()
+                for other, olabel in list(clients.items()):
+                    if other is not sock:
+                        try:
+                            other.sendall(raw)              # the actual mesh relay
+                        except OSError:
+                            continue
+                        g.set_blob(f"{olabel}:{mem}", key, val)   # peer now has it
+                        g.propagate(f"{label}:{mem}", f"{olabel}:{mem}")
+        clients.pop(sock, None)
+        g.event("instance_leave", f"{label} left the mesh")
+        try: sock.close()
+        except OSError: pass
+
+    while not stop():
+        try:
+            c, _ = srv.accept()
+        except socket.timeout:
+            continue
+        except OSError:
+            break
+        counter[0] += 1
+        label = f"vm{counter[0]}"
+        c.settimeout(1.0)
+        clients[c] = label
+        g.event("instance_join", f"{label} joined the mesh")
+        print(f"[obs] {label} joined the mesh")
+        threading.Thread(target=handle, args=(c, label), daemon=True).start()
 
 
 def com2_loop(g, port, stop):
@@ -194,6 +267,8 @@ def main():
     ap.add_argument("--com2", type=int, default=4444)
     ap.add_argument("--com3", type=int, default=4455)
     ap.add_argument("--http", type=int, default=8080)
+    ap.add_argument("--hub", action="store_true",
+                    help="multi-VM: run COM2 as a mesh hub (guests connect as clients, we relay + record)")
     ap.add_argument("--model", default="llama3.2:1b")
     ap.add_argument("--ollama", default="http://localhost:11434")
     args = ap.parse_args()
@@ -204,9 +279,14 @@ def main():
     stop = lambda: stopped
 
     threading.Thread(target=serve_http, args=(g, args.http), daemon=True).start()
-    threading.Thread(target=com3_loop, args=(g, args.com3, b.call_ollama, args.ollama, args.model, b.rule_fallback, stop), daemon=True).start()
-    threading.Thread(target=com2_loop, args=(g, args.com2, stop), daemon=True).start()
-    print("[obs] bridge up. point the observer at localhost:%d. Ctrl-C to stop." % args.http)
+    prefix = "vm1" if args.hub else ""   # in hub mode the LLM device belongs to vm1
+    threading.Thread(target=com3_loop, args=(g, args.com3, b.call_ollama, args.ollama, args.model, b.rule_fallback, stop, prefix), daemon=True).start()
+    if args.hub:
+        threading.Thread(target=mesh_hub, args=(g, args.com2, stop), daemon=True).start()
+    else:
+        threading.Thread(target=com2_loop, args=(g, args.com2, stop), daemon=True).start()
+    print("[obs] bridge up (%s). point the observer at localhost:%d. Ctrl-C to stop."
+          % ("hub/multi-VM" if args.hub else "single-VM", args.http))
     try:
         while True:
             time.sleep(1)
