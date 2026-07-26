@@ -5,6 +5,7 @@
 #   .\run-os.ps1 -Release              # Optimized build
 #   .\run-os.ps1 -VMCount 2            # Two VMs connected via COM2 mesh serial
 #   .\run-os.ps1 -Serial               # Pipe COM1 serial log to this terminal
+#   .\run-os.ps1 -Observe              # One command: boot + serial->8080 bridge + observer GUI
 #   .\run-os.ps1 -Accel tcg            # Force pure software emulation
 #   .\run-os.ps1 -Memory 512 -Cpus 2 -DiskMB 8
 #   .\run-os.ps1 -QEMU <path>          # Override QEMU executable path
@@ -16,6 +17,8 @@ param(
     [switch]$Release,
     [switch]$Serial,
     [switch]$LLM,                    # expose COM3 to the AI-accelerator bridge
+    [switch]$Observe,                # one-command stack: COM2+COM3 exposed, bridge + observer auto-launched
+    [string]$Model   = "llama3.2:1b",# model the observer bridge feeds to
     [int]   $VMCount = 1,
     [int]   $Memory  = 256,           # RAM per VM, in MiB
     [int]   $Cpus    = 1,             # vCPUs per VM (the kernel itself is single-core)
@@ -198,21 +201,26 @@ if ($VMCount -ge 2) {
 
     $serialLog = Join-Path $BootDir "serial.log"
 
-    # COM1 = console/serial log. If -LLM, COM2 = null and COM3 = the AI bridge
-    # socket (order matters: -serial args map to COM1, COM2, COM3).
-    if ($Serial) {
+    # COM1 = console/serial log. Order maps to COM1, COM2, COM3.
+    #   -Observe : COM2 (mesh) AND COM3 (LLM) both exposed as TCP servers so the
+    #              serial->8080 bridge can tap both and feed the observer.
+    #   -LLM     : COM2 = null, COM3 = the AI-accelerator socket.
+    if ($Observe) {
+        $qemuCmd += " -serial file:$serialLog"
+        $qemuCmd += " -serial tcp:127.0.0.1:4444,server,nowait -serial tcp:127.0.0.1:4455,server,nowait"
+    } elseif ($Serial) {
         $qemuCmd += " -serial stdio"
     } else {
         $qemuCmd += " -serial file:$serialLog"
     }
-    if ($LLM) {
+    if ($LLM -and -not $Observe) {
         $qemuCmd += " -serial null -serial tcp:127.0.0.1:4455,server,nowait"
         Write-Host "  AI accelerator (COM3) enabled." -ForegroundColor Magenta
         Write-Host "  In another terminal run:  python hive-llm-bridge.py" -ForegroundColor White
         Write-Host "  (needs Ollama + a small model, e.g. 'ollama pull llama3.2:1b')" -ForegroundColor DarkGray
     }
 
-    if ($Serial) {
+    if ($Serial -and -not $Observe) {
         Write-Host "  Starting (serial on this terminal)..." -ForegroundColor Green
         Write-Host ""
         cmd /c "`"$QEMU`" $qemuCmd"
@@ -222,6 +230,30 @@ if ($VMCount -ge 2) {
         Write-Host ""
         $proc = Start-Process -FilePath $QEMU -ArgumentList $qemuCmd -PassThru
         Register-Instance "vm1" $proc $serialLog
+
+        if ($Observe) {
+            Start-Sleep -Milliseconds 900
+            Write-Host ""
+            Write-Host "  ── Observer stack ──────────────────────────────────" -ForegroundColor Magenta
+            # 1. serial->8080 bridge: acts as the AI accelerator AND feeds the observer
+            $bridge = Join-Path $ROOT "hive-observer-bridge.py"
+            Start-Process -FilePath "python" -ArgumentList "`"$bridge`" --model $Model" -WorkingDirectory $ROOT
+            Write-Host "    bridge  -> http://localhost:8080/hive/snapshot   (model: $Model)" -ForegroundColor White
+            # 2. the observer GUI, if it is built
+            $obs = Join-Path $ROOT "..\target\debug\hivemind-observer.exe"
+            if (Test-Path $obs) {
+                Start-Process -FilePath $obs
+                Write-Host "    observer-> launched (reads localhost:8080)" -ForegroundColor White
+            } else {
+                Write-Host "    observer-> not built; run 'cargo run -p hivemind-observer' from ..\ " -ForegroundColor DarkGray
+            }
+            Write-Host "    (requires Ollama:  ollama serve )" -ForegroundColor DarkGray
+            Write-Host ""
+            Write-Host "  In the OS shell, watch the observer update as you type:" -ForegroundColor White
+            Write-Host "    agent new TempAI 1" -ForegroundColor Gray
+            Write-Host "    agent rule 2 temp gt:80 decision ai:overheating decide" -ForegroundColor Gray
+            Write-Host "    blob write 1 temp 95" -ForegroundColor Gray
+        }
         Write-Host "  Manage it:  .\hive-cli.ps1 list" -ForegroundColor White
     }
 }
