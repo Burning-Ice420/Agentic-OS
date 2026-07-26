@@ -582,6 +582,8 @@ fn cmd_agent(args: &[&str]) {
             if args.len() < 6 {
                 println!("  Usage: agent rule <id> <watch_key> <cond> <action_key> <action_val>");
                 println!("  Conditions:  gt:80  lt:20  eq:online  any");
+                println!("  action_val 'ai:<prompt>' offloads to the model instead of");
+                println!("  writing a fixed value (needs the -LLM bridge running).");
                 return;
             }
             let id: u64 = match args[1].parse() {

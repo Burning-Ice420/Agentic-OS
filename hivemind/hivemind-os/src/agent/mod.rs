@@ -4,13 +4,22 @@
 //! conditions are met.  Rules are evaluated on every `tick_all()` call
 //! (called ~once per second from the shell loop).
 //!
-//! For LLM-backed reasoning, see hivemind-vos (the Windows-side layer).
-//! In the bare-metal kernel, agents are fully rule-based.
+//! Rules are the fast, deterministic "reflex" tier. A rule can also DELEGATE its
+//! decision to the model accelerator (COM3): give the action value the form
+//! "ai:<prompt>" and, when the rule fires, the node's state is offloaded to the
+//! model instead of writing a fixed blob. The model's answer arrives as a blob
+//! (via llm::poll_and_apply) that the reflex tier can then react to — the two-tier
+//! loop, with no human typing `ai`.
 //!
-//! Example:
+//! Example (fixed reflex action):
 //!   agent new TempMonitor 3       ← watches memory node #3
 //!   agent rule 2 temperature gt:80 alert HIGH_TEMP
 //!   → whenever blob "temperature" > 80, writes blob "alert" = "HIGH_TEMP"
+//!
+//! Example (auto-offload to the model):
+//!   agent rule 2 temperature gt:80 decision ai:is this overheating, decide
+//!   → when temperature > 80, offloads the node's state to the model; its answer
+//!     is written back as a blob the reflex tier can react to.
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -226,21 +235,59 @@ pub fn tick_all() {
             continue;
         }
         fired_any = true;
-        let mem_name = hive::with_hive(|h| {
+        // Apply the plain writes, and gather the node name + its full state in one
+        // hive lock. An action value of "ai:<prompt>" is NOT a fixed write: it is a
+        // two-tier offload that hands the node's state to the model accelerator.
+        let (mem_name, ctx) = hive::with_hive(|h| {
             for (key, val) in &r.actions {
-                h.write_blob(r.memory_id, key, BlobValue::parse(val));
+                if !val.starts_with("ai:") {
+                    h.write_blob(r.memory_id, key, BlobValue::parse(val));
+                }
             }
-            h.memories.get(&r.memory_id).map(|m| m.name.clone())
+            let name = h.memories.get(&r.memory_id).map(|m| m.name.clone());
+            let ctx = h
+                .memories
+                .get(&r.memory_id)
+                .map(|m| {
+                    use core::fmt::Write;
+                    let mut c = String::new();
+                    for (k, b) in &m.blobs {
+                        if !c.is_empty() {
+                            c.push(',');
+                        }
+                        let _ = write!(c, "{}={}", k, b.value.display());
+                    }
+                    c
+                })
+                .unwrap_or_default();
+            (name, ctx)
         });
         for (key, val) in &r.actions {
-            audit_events.push(AgentEvent {
-                tick,
-                agent: r.name.clone(),
-                key:   key.clone(),
-                value: val.clone(),
-            });
-            if let Some(name) = &mem_name {
-                crate::net::send_blob(name, key, val);
+            if let Some(prompt) = val.strip_prefix("ai:") {
+                // The reflex rule fired but delegates the decision to the model.
+                // The LLMRSP is applied later by llm::poll_and_apply, which writes a
+                // blob the reflex tier can then react to — this closes the two-tier
+                // loop without a human typing `ai`.
+                let task = if prompt.is_empty() { "decide the next action" } else { prompt };
+                if let Some(name) = &mem_name {
+                    crate::llm::request(name, task, &ctx);
+                }
+                audit_events.push(AgentEvent {
+                    tick,
+                    agent: r.name.clone(),
+                    key:   "ai_offload".to_string(),
+                    value: task.to_string(),
+                });
+            } else {
+                audit_events.push(AgentEvent {
+                    tick,
+                    agent: r.name.clone(),
+                    key:   key.clone(),
+                    value: val.clone(),
+                });
+                if let Some(name) = &mem_name {
+                    crate::net::send_blob(name, key, val);
+                }
             }
         }
     }
