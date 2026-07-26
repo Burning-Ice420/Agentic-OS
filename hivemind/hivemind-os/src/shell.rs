@@ -387,7 +387,41 @@ fn cmd_mem(args: &[&str]) {
                 }
             });
         }
-        Some(other) => println!("  Unknown mem sub-command: '{}'. Try: list, new, show", other),
+        Some("mirror") => {
+            let id = match args.get(1).and_then(|s| s.parse::<u64>().ok()) {
+                Some(n) => n,
+                None    => { println!("  Usage: mem mirror <id>  (replicate this node to peer VMs)"); return; }
+            };
+            let ok = hive::with_hive(|h| h.set_mirror(id));
+            if ok {
+                vga_buffer::set_color(Color::White, Color::Black);
+                println!("  Memory {} is now mirrored -> its writes replicate to peer VMs.", id);
+                println!("  A dead node's state survives on the peer (kill this VM and check).");
+                vga_buffer::set_color(Color::LightGreen, Color::Black);
+            } else {
+                println!("  Memory {} not found.", id);
+            }
+        }
+        Some("page") => {
+            let id = match args.get(1).and_then(|s| s.parse::<u64>().ok()) {
+                Some(n) => n,
+                None    => { println!("  Usage: mem page <id> [min_age_ticks]  (page cold blobs out to disk)"); return; }
+            };
+            let age = args.get(2).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+            let now = crate::interrupts::current_tick();
+            let (n, freed) = hive::with_hive(|h| h.page_out_cold(id, now, age));
+            vga_buffer::set_color(Color::White, Color::Black);
+            println!("  Paged {} blob(s) out to disk, ~{} bytes freed from RAM.", n, freed);
+            println!("  'blob read {} <key>' pages one back in transparently.", id);
+            vga_buffer::set_color(Color::LightGreen, Color::Black);
+        }
+        Some("tiers") => {
+            let (res, paged) = hive::with_hive(|h| h.tier_counts());
+            vga_buffer::set_color(Color::White, Color::Black);
+            println!("  Tiered memory:  {} resident (RAM)   {} paged (disk)", res, paged);
+            vga_buffer::set_color(Color::LightGreen, Color::Black);
+        }
+        Some(other) => println!("  Unknown mem sub-command: '{}'. Try: list, new, show, mirror, page, tiers", other),
     }
 }
 
@@ -406,10 +440,24 @@ fn cmd_blob(args: &[&str]) {
             };
             let key   = args[2];
             let value = BlobValue::parse(&args[3..].join(" "));
-            let ok    = hive::with_hive(|h| h.write_blob(id, key, value));
+            // Write locally; if the node is mirrored, capture its name so we can
+            // replicate the write to peer VMs after releasing the hive lock.
+            let (ok, mirror_name) = hive::with_hive(|h| {
+                let ok = h.write_blob(id, key, value.clone());
+                let name = if ok && h.is_mirrored(id) {
+                    h.memory_name(id).map(|s| s.to_string())
+                } else {
+                    None
+                };
+                (ok, name)
+            });
             if ok {
                 vga_buffer::set_color(Color::White, Color::Black);
                 println!("  Written '{}' to memory {}.", key, id);
+                if let Some(name) = mirror_name {
+                    crate::net::send_blob(&name, key, &value.display());
+                    println!("  (mirrored -> replicated to peer VMs)");
+                }
                 vga_buffer::set_color(Color::LightGreen, Color::Black);
             } else {
                 println!("  Memory {} not found.", id);
@@ -425,6 +473,8 @@ fn cmd_blob(args: &[&str]) {
                 Err(_) => { println!("  Invalid memory id."); return; }
             };
             let key = args[2];
+            // Tiered memory: if the value was paged out to disk, page it back in first.
+            let paged_in = hive::with_hive(|h| h.page_in_blob(id, key));
             hive::with_hive(|h| {
                 match h.read_blob(id, key) {
                     None       => println!("  Blob '{}' not found in memory {}.", key, id),
@@ -432,6 +482,9 @@ fn cmd_blob(args: &[&str]) {
                         vga_buffer::set_color(Color::White, Color::Black);
                         println!("  {} = {}", blob.key, blob.value.display());
                         vga_buffer::set_color(Color::LightGreen, Color::Black);
+                        if paged_in == Some(true) {
+                            println!("    [was paged out — paged back in from disk]");
+                        }
                         println!("    created  t={}", blob.created_tick);
                         println!("    modified t={}", blob.modified_tick);
                     }

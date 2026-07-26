@@ -134,6 +134,96 @@ impl Hive {
         true
     }
 
+    // ── Tiered memory (MemGPT-style hot/cold paging) ───────────────────────────
+
+    /// Page out cold blobs of a node whose last write is older than `age_ticks`,
+    /// freeing their in-RAM value to disk. Returns (blobs_paged, bytes_freed).
+    pub fn page_out_cold(&mut self, id: u64, now: u64, age_ticks: u64) -> (usize, usize) {
+        let mut count = 0;
+        let mut freed = 0;
+        if let Some(mem) = self.memories.get_mut(&id) {
+            for blob in mem.blobs.values_mut() {
+                if blob.paged_sector.is_some() {
+                    continue; // already paged
+                }
+                if now.wrapping_sub(blob.modified_tick) < age_ticks {
+                    continue; // still hot
+                }
+                let bytes = blob.value.encode();
+                if bytes.len() <= 4 {
+                    continue; // not worth paging a tiny value
+                }
+                if let Some(sector) = crate::disk::page_out(&bytes) {
+                    freed += match &blob.value {
+                        BlobValue::Text(s)   => s.len(),
+                        BlobValue::Binary(b) => b.len(),
+                        _ => 0,
+                    };
+                    blob.value = BlobValue::Text(String::new()); // drop the payload from RAM
+                    blob.paged_sector = Some(sector);
+                    count += 1;
+                }
+            }
+        }
+        (count, freed)
+    }
+
+    /// Page a blob back in from disk if it was paged out. Returns Some(true) if a
+    /// page-in happened, Some(false) if already resident, None if not found.
+    pub fn page_in_blob(&mut self, id: u64, key: &str) -> Option<bool> {
+        let mem  = self.memories.get_mut(&id)?;
+        let blob = mem.blobs.get_mut(key)?;
+        match blob.paged_sector {
+            None => Some(false),
+            Some(sector) => {
+                if let Some(bytes) = crate::disk::page_in(sector) {
+                    blob.value = BlobValue::decode(&bytes);
+                    blob.paged_sector = None;
+                    Some(true)
+                } else {
+                    Some(false)
+                }
+            }
+        }
+    }
+
+    /// (resident, paged) blob counts across the whole hive.
+    pub fn tier_counts(&self) -> (usize, usize) {
+        let mut resident = 0;
+        let mut paged = 0;
+        for m in self.memories.values() {
+            for b in m.blobs.values() {
+                if b.paged_sector.is_some() { paged += 1; } else { resident += 1; }
+            }
+        }
+        (resident, paged)
+    }
+
+    // ── Mirror replication (resilient shared state, Chord/RON lineage) ──────────
+
+    /// True if this node has an outgoing Mirror edge, i.e. its writes should be
+    /// replicated to peer VMs so a dead node's state survives on a peer.
+    pub fn is_mirrored(&self, id: u64) -> bool {
+        self.edges.iter().any(|e| e.from_id == id && e.edge_type == EdgeType::Mirror)
+    }
+
+    /// The name of a memory node, if it exists.
+    pub fn memory_name(&self, id: u64) -> Option<&str> {
+        self.memories.get(&id).map(|m| m.name.as_str())
+    }
+
+    /// Mark a node as mirrored by adding a Mirror self-edge. Writes to it will then
+    /// replicate to any peer VM holding a node of the same name.
+    pub fn set_mirror(&mut self, id: u64) -> bool {
+        if !self.memories.contains_key(&id) {
+            return false;
+        }
+        if !self.is_mirrored(id) {
+            self.edges.push(MemoryEdge { from_id: id, to_id: id, edge_type: EdgeType::Mirror });
+        }
+        true
+    }
+
     /// Broadcast a signal from a memory node to all subscribers.
     pub fn broadcast_signal(&mut self, from_id: u64, signal_type: &str, payload: &str) {
         let tick = crate::interrupts::current_tick();

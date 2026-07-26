@@ -34,6 +34,7 @@ impl MemoryNode {
         if let Some(blob) = self.blobs.get_mut(key) {
             blob.value         = value;
             blob.modified_tick = tick;
+            blob.paged_sector  = None; // an overwrite makes it resident again
         } else {
             let id   = next_id();
             let blob = Blob::new(id, key, value, self.id);

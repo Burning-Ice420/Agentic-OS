@@ -254,3 +254,51 @@ pub fn write_sectors(lba: u32, data: &[u8]) -> Result<(), &'static str> {
     }
     Ok(())
 }
+
+// ── Tiered-memory page store (MemGPT-style) ────────────────────────────────────
+//
+// Cold blob values are paged out here to free RAM, and paged back in on access.
+// Sectors 0..127 hold the header/hive/VFS; the page store starts at 128 and is
+// bump-allocated (no reclaim yet). Each paged value uses one sector: a two-byte
+// big-endian length prefix followed by the encoded value.
+
+pub const PAGE_START_SECTOR: u32 = 128;
+static NEXT_PAGE_SECTOR: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(PAGE_START_SECTOR);
+
+/// Page a cold value's bytes out to disk. Returns its sector, or None if it does
+/// not fit in one sector or the store is full.
+pub fn page_out(bytes: &[u8]) -> Option<u32> {
+    use core::sync::atomic::Ordering;
+    if !is_present() || bytes.len() > SECTOR_SIZE - 2 {
+        return None;
+    }
+    let total = DISK_SECTORS.load(Ordering::Relaxed);
+    let sector = NEXT_PAGE_SECTOR.fetch_add(1, Ordering::Relaxed);
+    if total != 0 && sector >= total {
+        return None;
+    }
+    let mut buf = [0u8; SECTOR_SIZE];
+    buf[0] = (bytes.len() >> 8) as u8;
+    buf[1] = (bytes.len() & 0xff) as u8;
+    buf[2..2 + bytes.len()].copy_from_slice(bytes);
+    write_sectors(sector, &buf).ok()?;
+    Some(sector)
+}
+
+/// Read a previously paged-out value back from disk.
+pub fn page_in(sector: u32) -> Option<alloc::vec::Vec<u8>> {
+    if !is_present() {
+        return None;
+    }
+    let mut v = alloc::vec::Vec::new();
+    read_sectors(sector, 1, &mut v).ok()?;
+    if v.len() < 2 {
+        return None;
+    }
+    let len = ((v[0] as usize) << 8) | v[1] as usize;
+    if 2 + len > v.len() {
+        return None;
+    }
+    Some(v[2..2 + len].to_vec())
+}

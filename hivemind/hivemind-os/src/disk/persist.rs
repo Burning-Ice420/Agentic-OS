@@ -138,7 +138,15 @@ fn serialize_hive(h: &mut hive::Hive) -> Vec<u8> {
             let _ = write!(out, "MEM|{}|{}\n", id, mem.name);
         }
         for (key, blob) in &mem.blobs {
-            let val = match &blob.value {
+            // If the blob is paged out to disk, read its real value back so the
+            // saved state is complete (paging is a RAM optimisation, not data loss).
+            let effective = if let Some(sector) = blob.paged_sector {
+                super::page_in(sector).map(|b| BlobValue::decode(&b))
+                    .unwrap_or(BlobValue::Text(String::new()))
+            } else {
+                blob.value.clone()
+            };
+            let val = match &effective {
                 BlobValue::Text(s)   => alloc::format!("T:{}", s),
                 BlobValue::Number(n) => alloc::format!("N:{}", n),
                 BlobValue::Bool(b)   => alloc::format!("B:{}", if *b { 1 } else { 0 }),
