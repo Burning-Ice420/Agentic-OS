@@ -197,7 +197,9 @@ if ($VMCount -ge 2) {
         Write-Host "  VM$i ..." -ForegroundColor Cyan
         $proc = Start-Process -FilePath $QEMU -ArgumentList $vmArgs -PassThru
         Register-Instance "vm$i" $proc $serialLog
-        Start-Sleep -Milliseconds 700
+        # Stagger boots: launching WHPX guests into the heavy early-boot phase at
+        # the same time can make one hang. Give each a head start in -Observe mode.
+        if ($Observe) { Start-Sleep -Seconds 6 } else { Start-Sleep -Milliseconds 700 }
     }
 
     Write-Host ""
