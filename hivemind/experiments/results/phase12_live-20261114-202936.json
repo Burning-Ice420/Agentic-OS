@@ -1,0 +1,37 @@
+{
+  "experiment": "phase12_live",
+  "environment": {
+    "git_commit": "1d05d9231fb73b72dbe85dd402ab2216892d3f74",
+    "git_dirty": true,
+    "os": "Windows-11-10.0.26300-SP0",
+    "cpu": "13th Gen Intel(R) Core(TM) i5-13420H",
+    "ram_gb": "15.6",
+    "python": "3.14.5",
+    "qemu": "QEMU emulator version 10.2.2",
+    "rustc_nightly": "<unavailable: FileNotFoundError>",
+    "ollama": "ollama version is 0.40.16",
+    "utc": "2026-11-14T14:59:38+00:00"
+  },
+  "config": {
+    "boot": "C:\\hivemind\\boot_p.bin"
+  },
+  "seed": null,
+  "repetitions": 1,
+  "warmup": "none",
+  "failed_runs": [
+    {
+      "attempt": 0,
+      "reason": "guest did not reach prompt within 55s"
+    },
+    {
+      "attempt": 1,
+      "reason": "guest did not reach prompt within 55s"
+    },
+    {
+      "attempt": 2,
+      "reason": "guest did not reach prompt within 55s"
+    }
+  ],
+  "metrics": {},
+  "notes": "no successful boot"
+}

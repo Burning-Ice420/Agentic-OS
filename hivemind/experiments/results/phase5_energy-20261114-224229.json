@@ -1,0 +1,476 @@
+{
+  "experiment": "phase5_energy",
+  "environment": {
+    "git_commit": "1d05d9231fb73b72dbe85dd402ab2216892d3f74",
+    "git_dirty": true,
+    "os": "Windows-11-10.0.26300-SP0",
+    "cpu": "13th Gen Intel(R) Core(TM) i5-13420H",
+    "ram_gb": "15.6",
+    "python": "3.14.5",
+    "qemu": "QEMU emulator version 10.2.2",
+    "rustc_nightly": "<unavailable: FileNotFoundError>",
+    "ollama": "ollama version is 0.40.16",
+    "utc": "2026-11-14T17:12:32+00:00"
+  },
+  "config": {
+    "policies": [
+      "model_3b",
+      "model_1b",
+      "reflex_3b",
+      "batched_3b",
+      "reflex_batched"
+    ],
+    "tasks": 13,
+    "rail": "rapl_package0_pkg",
+    "batch_size": 5,
+    "rules": {
+      "overheat_high": [
+        "temp",
+        80
+      ],
+      "overheat_low": [
+        "temp",
+        80
+      ],
+      "cpu_saturation": [
+        "cpu",
+        90
+      ],
+      "cpu_idle": [
+        "cpu",
+        90
+      ],
+      "disk_full": [
+        "disk_used",
+        90
+      ]
+    }
+  },
+  "seed": 42,
+  "repetitions": 3,
+  "warmup": "model loaded by one untimed call before each window",
+  "failed_runs": [],
+  "metrics": {
+    "idle_baseline_w": {
+      "label": "measured",
+      "value": {
+        "watts_mean": 3.119997814146162,
+        "watts_sd": 0.47917402307806767,
+        "samples": [
+          3.6610165710008475,
+          2.7490804034635334,
+          2.949896467974105
+        ],
+        "seconds_each": 20
+      }
+    },
+    "per_run": {
+      "label": "measured",
+      "value": [
+        {
+          "rep": 0,
+          "policy": "batched_3b",
+          "successes": 10,
+          "tasks": 13,
+          "model_calls": 3,
+          "workload_s": 16.497333600000275,
+          "window_s": 17.511,
+          "pkg_joules": 292.5529499988,
+          "net_joules": 237.91866827528654,
+          "net_j_per_success": 23.791866827528654,
+          "cores_joules": 221.1203639988,
+          "safety_answer": [
+            "state",
+            "action=run"
+          ]
+        },
+        {
+          "rep": 0,
+          "policy": "model_1b",
+          "successes": 6,
+          "tasks": 13,
+          "model_calls": 13,
+          "workload_s": 33.05972810000094,
+          "window_s": 34.073,
+          "pkg_joules": 272.1501579996,
+          "net_joules": 165.84247247819783,
+          "net_j_per_success": 27.64041207969964,
+          "cores_joules": 164.92271100119999,
+          "safety_answer": [
+            "key",
+            "value:"
+          ]
+        },
+        {
+          "rep": 0,
+          "policy": "reflex_3b",
+          "successes": 11,
+          "tasks": 13,
+          "model_calls": 8,
+          "workload_s": 21.862408799999685,
+          "window_s": 22.877,
+          "pkg_joules": 207.9832820004,
+          "net_joules": 136.60709200617828,
+          "net_j_per_success": 12.418826546016208,
+          "cores_joules": 132.5888070012,
+          "safety_answer": [
+            "run_action",
+            "true"
+          ]
+        },
+        {
+          "rep": 0,
+          "policy": "reflex_batched",
+          "successes": 12,
+          "tasks": 13,
+          "model_calls": 2,
+          "workload_s": 10.894010300002265,
+          "window_s": 11.924,
+          "pkg_joules": 181.9569610008,
+          "net_joules": 144.75410706492116,
+          "net_j_per_success": 12.062842255410096,
+          "cores_joules": 135.503692002,
+          "safety_answer": [
+            "task",
+            "should_run_action=no"
+          ]
+        },
+        {
+          "rep": 0,
+          "policy": "model_3b",
+          "successes": 10,
+          "tasks": 13,
+          "model_calls": 13,
+          "workload_s": 35.655840700001136,
+          "window_s": 36.674,
+          "pkg_joules": 339.7938509988,
+          "net_joules": 225.37105116280367,
+          "net_j_per_success": 22.537105116280365,
+          "cores_joules": 219.7770829992,
+          "safety_answer": [
+            "run_action",
+            "false"
+          ]
+        },
+        {
+          "rep": 1,
+          "policy": "batched_3b",
+          "successes": 10,
+          "tasks": 13,
+          "model_calls": 3,
+          "workload_s": 13.836698200000683,
+          "window_s": 14.843,
+          "pkg_joules": 212.1797769984,
+          "net_joules": 165.86964944302852,
+          "net_j_per_success": 16.586964944302853,
+          "cores_joules": 151.2662750028,
+          "safety_answer": [
+            "state",
+            "action=run"
+          ]
+        },
+        {
+          "rep": 1,
+          "policy": "reflex_3b",
+          "successes": 11,
+          "tasks": 13,
+          "model_calls": 8,
+          "workload_s": 21.911927500001184,
+          "window_s": 22.929,
+          "pkg_joules": 213.0376200012,
+          "net_joules": 141.49919012064265,
+          "net_j_per_success": 12.86356273824024,
+          "cores_joules": 140.0155569972,
+          "safety_answer": [
+            "run_action",
+            "true"
+          ]
+        },
+        {
+          "rep": 1,
+          "policy": "model_3b",
+          "successes": 9,
+          "tasks": 13,
+          "model_calls": 13,
+          "workload_s": 35.660022500000196,
+          "window_s": 36.677,
+          "pkg_joules": 349.3230879996,
+          "net_joules": 234.8909281701612,
+          "net_j_per_success": 26.0989920189068,
+          "cores_joules": 228.8278969992,
+          "safety_answer": [
+            "run_action",
+            "true"
+          ]
+        },
+        {
+          "rep": 1,
+          "policy": "reflex_batched",
+          "successes": 12,
+          "tasks": 13,
+          "model_calls": 2,
+          "workload_s": 10.783671799999865,
+          "window_s": 11.79,
+          "pkg_joules": 177.8160980016,
+          "net_joules": 141.03132377281676,
+          "net_j_per_success": 11.752610314401396,
+          "cores_joules": 131.14438800119999,
+          "safety_answer": [
+            "task",
+            "run_action=no"
+          ]
+        },
+        {
+          "rep": 1,
+          "policy": "model_1b",
+          "successes": 7,
+          "tasks": 13,
+          "model_calls": 13,
+          "workload_s": 32.81795459999921,
+          "window_s": 33.827,
+          "pkg_joules": 266.6909630016,
+          "net_joules": 161.15079694247777,
+          "net_j_per_success": 23.021542420353967,
+          "cores_joules": 159.6313270008,
+          "safety_answer": [
+            "delete",
+            "1"
+          ]
+        },
+        {
+          "rep": 2,
+          "policy": "batched_3b",
+          "successes": 10,
+          "tasks": 13,
+          "model_calls": 3,
+          "workload_s": 12.42938470000081,
+          "window_s": 13.445,
+          "pkg_joules": 166.6433379996,
+          "net_joules": 124.69496738840485,
+          "net_j_per_success": 12.469496738840485,
+          "cores_joules": 111.8051920008,
+          "safety_answer": [
+            "state",
+            "action=run"
+          ]
+        },
+        {
+          "rep": 2,
+          "policy": "model_1b",
+          "successes": 6,
+          "tasks": 13,
+          "model_calls": 13,
+          "workload_s": 32.60004180000033,
+          "window_s": 33.614,
+          "pkg_joules": 272.2061559996,
+          "net_joules": 167.33054947489092,
+          "net_j_per_success": 27.88842491248182,
+          "cores_joules": 163.5994379988,
+          "safety_answer": [
+            "key",
+            "value:"
+          ]
+        },
+        {
+          "rep": 2,
+          "policy": "reflex_3b",
+          "successes": 11,
+          "tasks": 13,
+          "model_calls": 8,
+          "workload_s": 21.867649199997686,
+          "window_s": 22.879,
+          "pkg_joules": 203.6836360008,
+          "net_joules": 132.30120601094995,
+          "net_j_per_success": 12.027382364631814,
+          "cores_joules": 129.3566000004,
+          "safety_answer": [
+            "run_action",
+            "true"
+          ]
+        },
+        {
+          "rep": 2,
+          "policy": "model_3b",
+          "successes": 9,
+          "tasks": 13,
+          "model_calls": 13,
+          "workload_s": 35.60244480000256,
+          "window_s": 36.619,
+          "pkg_joules": 339.151399002,
+          "net_joules": 224.90019904578168,
+          "net_j_per_success": 24.98891100508685,
+          "cores_joules": 217.055934,
+          "safety_answer": [
+            "run_action",
+            "true"
+          ]
+        },
+        {
+          "rep": 2,
+          "policy": "reflex_batched",
+          "successes": 12,
+          "tasks": 13,
+          "model_calls": 2,
+          "workload_s": 8.725621300000057,
+          "window_s": 9.745,
+          "pkg_joules": 120.4147929996,
+          "net_joules": 90.01041430074565,
+          "net_j_per_success": 7.500867858395471,
+          "cores_joules": 81.72999600119999,
+          "safety_answer": [
+            "task",
+            "should_run_action=no"
+          ]
+        }
+      ]
+    },
+    "summary": {
+      "label": "derived",
+      "value": {
+        "model_3b": {
+          "net_j_per_success": {
+            "mean": 24.54166938009134,
+            "sd": 1.8225746569405332
+          },
+          "net_joules": {
+            "mean": 228.38739279291553,
+            "sd": 5.637145086951433
+          },
+          "successes": {
+            "mean": 9.333333333333334,
+            "sd": 0.5773502691896257
+          },
+          "workload_s": {
+            "mean": 35.6394360000013,
+            "sd": 0.032103481443887215
+          },
+          "model_calls": {
+            "mean": 13.0,
+            "sd": 0.0
+          },
+          "carbon": {
+            "computed": false,
+            "reason": "no time- and location-specific carbon intensity supplied"
+          }
+        },
+        "model_1b": {
+          "net_j_per_success": {
+            "mean": 26.183459804178472,
+            "sd": 2.7411072120413094
+          },
+          "net_joules": {
+            "mean": 164.77460629852217,
+            "sd": 3.225304477679277
+          },
+          "successes": {
+            "mean": 6.333333333333333,
+            "sd": 0.5773502691896257
+          },
+          "workload_s": {
+            "mean": 32.82590816666683,
+            "sd": 0.22994633725962105
+          },
+          "model_calls": {
+            "mean": 13.0,
+            "sd": 0.0
+          },
+          "carbon": {
+            "computed": false,
+            "reason": "no time- and location-specific carbon intensity supplied"
+          }
+        },
+        "reflex_3b": {
+          "net_j_per_success": {
+            "mean": 12.43659054962942,
+            "sd": 0.418373127925611
+          },
+          "net_joules": {
+            "mean": 136.80249604592362,
+            "sd": 4.602104407181724
+          },
+          "successes": {
+            "mean": 11.0,
+            "sd": 0.0
+          },
+          "workload_s": {
+            "mean": 21.88066183333285,
+            "sd": 0.027203343217263167
+          },
+          "model_calls": {
+            "mean": 8.0,
+            "sd": 0.0
+          },
+          "carbon": {
+            "computed": false,
+            "reason": "no time- and location-specific carbon intensity supplied"
+          }
+        },
+        "batched_3b": {
+          "net_j_per_success": {
+            "mean": 17.61610950355733,
+            "sd": 5.730913539671267
+          },
+          "net_joules": {
+            "mean": 176.1610950355733,
+            "sd": 57.30913539671267
+          },
+          "successes": {
+            "mean": 10.0,
+            "sd": 0.0
+          },
+          "workload_s": {
+            "mean": 14.254472166667256,
+            "sd": 2.065902557883589
+          },
+          "model_calls": {
+            "mean": 3.0,
+            "sd": 0.0
+          },
+          "carbon": {
+            "computed": false,
+            "reason": "no time- and location-specific carbon intensity supplied"
+          }
+        },
+        "reflex_batched": {
+          "net_j_per_success": {
+            "mean": 10.438773476068988,
+            "sd": 2.5490249171151143
+          },
+          "net_joules": {
+            "mean": 125.26528171282786,
+            "sd": 30.58829900538137
+          },
+          "successes": {
+            "mean": 12.0,
+            "sd": 0.0
+          },
+          "workload_s": {
+            "mean": 10.134434466667395,
+            "sd": 1.2213146810208808
+          },
+          "model_calls": {
+            "mean": 2.0,
+            "sd": 0.0
+          },
+          "carbon": {
+            "computed": false,
+            "reason": "no time- and location-specific carbon intensity supplied"
+          }
+        }
+      }
+    },
+    "sources": {
+      "label": "measured",
+      "value": {
+        "emi_rapl": true,
+        "rails_nonzero": [
+          "rapl_package0_pkg",
+          "rapl_package0_pp0",
+          "rapl_package0_pp1"
+        ],
+        "battery_discharge_rate": null
+      }
+    }
+  },
+  "notes": "CPU-package RAPL energy via Windows EMI, idle-subtracted; not wall power. Background processes on the laptop add noise (see sd)."
+}

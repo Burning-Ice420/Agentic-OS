@@ -1,0 +1,120 @@
+{
+  "experiment": "two_vm_mesh",
+  "environment": {
+    "git_commit": "1d05d9231fb73b72dbe85dd402ab2216892d3f74",
+    "git_dirty": true,
+    "os": "Windows-11-10.0.26300-SP0",
+    "cpu": "13th Gen Intel(R) Core(TM) i5-13420H",
+    "ram_gb": "15.6",
+    "python": "3.14.5",
+    "qemu": "QEMU emulator version 10.2.2",
+    "rustc_nightly": "<unavailable: FileNotFoundError>",
+    "ollama": "ollama version is 0.40.16",
+    "utc": "2026-11-14T16:51:51+00:00"
+  },
+  "config": {
+    "ids": {
+      "node_A": 4,
+      "node_B": 4,
+      "watcher_A": 2,
+      "responder_B": 2
+    },
+    "accel": "whpx",
+    "hub": "python TCP relay"
+  },
+  "seed": null,
+  "repetitions": 1,
+  "warmup": "none",
+  "failed_runs": [],
+  "metrics": {
+    "checks": {
+      "label": "measured",
+      "value": {
+        "two_instances_in_log": true,
+        "B_received_alert_as_peer": true,
+        "B_alert_inferred_from_A_mesh_send": true,
+        "B_responder_acted": true,
+        "B_action_chain_reaches_A_shell_write": true,
+        "A_received_action_back": true,
+        "A_action_inferred_from_B_mesh_send": true,
+        "no_drops_or_gaps": true,
+        "no_ambiguous_links": true
+      }
+    },
+    "relayed_lines": {
+      "label": "measured",
+      "value": [
+        [
+          "A->B",
+          "HMSG|plant|seed|0"
+        ],
+        [
+          "A->B",
+          "HMSG|plant|alert|high"
+        ],
+        [
+          "B->A",
+          "HMSG|plant|action|shutdown"
+        ]
+      ]
+    },
+    "b_reaction_after_alert_at_hub_ms": {
+      "label": "measured",
+      "value": 374.9419999985548
+    },
+    "lineage_stats": {
+      "label": "measured",
+      "value": {
+        "instances": [
+          "35c384a3-6ed0-4b62-ba60-124b7558c5b9",
+          "c0f490ff-e935-49ba-8b14-fc143a3b8543"
+        ],
+        "events": 27,
+        "by_kind": {
+          "agent_fire": 2,
+          "agent_rule": 2,
+          "agent_spawned": 2,
+          "create": 4,
+          "marker": 2,
+          "mesh_send": 3,
+          "read": 2,
+          "write": 10
+        },
+        "writes": 10,
+        "writes_with_actor": 10,
+        "agent_or_model_writes": 2,
+        "agent_or_model_writes_with_parent": 2,
+        "reads": 2,
+        "peer_writes": 3,
+        "peer_writes_inferred": 3,
+        "peer_writes_ambiguous": 0,
+        "peer_writes_unknown": 0,
+        "reads_linked_to_writes": 2,
+        "reads_inconsistent": 0,
+        "dangling_parents": 0,
+        "id_gaps": {
+          "35c384a3-6ed0-4b62-ba60-124b7558c5b9": 0,
+          "c0f490ff-e935-49ba-8b14-fc143a3b8543": 0
+        },
+        "kernel_reported": {
+          "35c384a3-6ed0-4b62-ba60-124b7558c5b9": {
+            "emitted": "14",
+            "dropped": "0",
+            "drained": "14",
+            "pending": "0",
+            "next_id": "15"
+          },
+          "c0f490ff-e935-49ba-8b14-fc143a3b8543": {
+            "emitted": "13",
+            "dropped": "0",
+            "drained": "13",
+            "pending": "0",
+            "next_id": "14"
+          }
+        },
+        "malformed_lines": 0
+      }
+    }
+  },
+  "notes": "fixtures: services/tests/fixtures/live_mesh_A.log, live_mesh_B.log; reaction time is one sample, includes serial I/O and the hub"
+}

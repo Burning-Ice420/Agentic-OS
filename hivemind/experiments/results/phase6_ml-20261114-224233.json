@@ -1,0 +1,69 @@
+{
+  "experiment": "phase6_ml",
+  "environment": {
+    "git_commit": "1d05d9231fb73b72dbe85dd402ab2216892d3f74",
+    "git_dirty": true,
+    "os": "Windows-11-10.0.26300-SP0",
+    "cpu": "13th Gen Intel(R) Core(TM) i5-13420H",
+    "ram_gb": "15.6",
+    "python": "3.14.5",
+    "qemu": "QEMU emulator version 10.2.2",
+    "rustc_nightly": "<unavailable: FileNotFoundError>",
+    "ollama": "ollama version is 0.40.16",
+    "utc": "2026-11-14T17:12:35+00:00"
+  },
+  "config": {
+    "features": "1,is_3b,num_predict,num_predict*is_3b,prompt_len,ctx_len,fewshot,temperature",
+    "folds": 5
+  },
+  "seed": 0,
+  "repetitions": 5,
+  "warmup": "none",
+  "failed_runs": [],
+  "metrics": {
+    "n_calls": {
+      "label": "measured",
+      "value": 245
+    },
+    "cv": {
+      "label": "derived",
+      "value": {
+        "global_mean": {
+          "mae": {
+            "mean": 0.10359349664726747,
+            "sd": 0.01709178755834451
+          },
+          "rmse": {
+            "mean": 0.13443112718294625,
+            "sd": 0.03643719755900234
+          }
+        },
+        "per_model_mean": {
+          "mae": {
+            "mean": 0.056306211692023066,
+            "sd": 0.011126528442089417
+          },
+          "rmse": {
+            "mean": 0.08653573023001197,
+            "sd": 0.039369650016474134
+          }
+        },
+        "linear": {
+          "mae": {
+            "mean": 0.05568097211668044,
+            "sd": 0.005762241307627539
+          },
+          "rmse": {
+            "mean": 0.08613961221207145,
+            "sd": 0.037454118011082844
+          }
+        }
+      }
+    },
+    "linear_beats_per_model_mean_folds": {
+      "label": "derived",
+      "value": 3
+    }
+  },
+  "notes": "per-call latencies from phases 4 and 5; out_len excluded (leakage)"
+}

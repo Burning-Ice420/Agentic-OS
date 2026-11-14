@@ -1,0 +1,237 @@
+{
+  "experiment": "phase4_ai",
+  "environment": {
+    "git_commit": "1d05d9231fb73b72dbe85dd402ab2216892d3f74",
+    "git_dirty": true,
+    "os": "Windows-11-10.0.26300-SP0",
+    "cpu": "13th Gen Intel(R) Core(TM) i5-13420H",
+    "ram_gb": "15.6",
+    "python": "3.14.5",
+    "qemu": "QEMU emulator version 10.2.2",
+    "rustc_nightly": "<unavailable: FileNotFoundError>",
+    "ollama": "ollama version is 0.40.16",
+    "utc": "2026-11-14T17:04:21+00:00"
+  },
+  "config": {
+    "space": [
+      [
+        "model",
+        [
+          "llama3.2:1b",
+          "llama3.2:3b"
+        ]
+      ],
+      [
+        "num_predict",
+        [
+          8,
+          16,
+          32
+        ]
+      ],
+      [
+        "temperature",
+        [
+          0.0,
+          0.3
+        ]
+      ],
+      [
+        "prompt",
+        [
+          "strict",
+          "fewshot"
+        ]
+      ]
+    ],
+    "latency_ceiling_s": 4.0,
+    "budget": 6,
+    "objective": "-accuracy (13 tasks, polarity scorer) + 1 if mean latency > ceiling"
+  },
+  "seed": 0,
+  "repetitions": 1,
+  "warmup": "one untimed call per config",
+  "failed_runs": [],
+  "metrics": {
+    "search": {
+      "label": "measured",
+      "value": {
+        "random": {
+          "best_config": {
+            "model": "llama3.2:3b",
+            "num_predict": 32,
+            "temperature": 0.3,
+            "prompt": "strict"
+          },
+          "best_accuracy": 0.8461538461538461,
+          "best_latency_s": 2.7170883230772653,
+          "curve_neg_acc": [
+            -0.6923076923076923,
+            -0.6923076923076923,
+            -0.6923076923076923,
+            -0.6923076923076923,
+            -0.6923076923076923,
+            -0.8461538461538461
+          ],
+          "evaluations": 6,
+          "optimizer_overhead_s": 0.0
+        },
+        "bayes_gp_ei": {
+          "best_config": {
+            "model": "llama3.2:3b",
+            "num_predict": 8,
+            "temperature": 0.3,
+            "prompt": "strict"
+          },
+          "best_accuracy": 0.8461538461538461,
+          "best_latency_s": 2.766903261538223,
+          "curve_neg_acc": [
+            -0.8461538461538461,
+            -0.8461538461538461,
+            -0.8461538461538461,
+            -0.8461538461538461,
+            -0.8461538461538461,
+            -0.8461538461538461
+          ],
+          "evaluations": 6,
+          "optimizer_overhead_s": 0.03212810000331956
+        },
+        "grid": {
+          "feasible": false,
+          "note": "space has 24 configs x 13 real model calls; exceeds budget 6"
+        }
+      }
+    },
+    "all_evaluations": {
+      "label": "measured",
+      "value": [
+        {
+          "config": {
+            "model": "llama3.2:3b",
+            "num_predict": 16,
+            "temperature": 0.0,
+            "prompt": "fewshot"
+          },
+          "accuracy": 0.6923076923076923,
+          "mean_latency_s": 2.8238449846156493,
+          "feasible": true
+        },
+        {
+          "config": {
+            "model": "llama3.2:3b",
+            "num_predict": 16,
+            "temperature": 0.3,
+            "prompt": "fewshot"
+          },
+          "accuracy": 0.6153846153846154,
+          "mean_latency_s": 2.7392982769230843,
+          "feasible": true
+        },
+        {
+          "config": {
+            "model": "llama3.2:3b",
+            "num_predict": 32,
+            "temperature": 0.0,
+            "prompt": "strict"
+          },
+          "accuracy": 0.6923076923076923,
+          "mean_latency_s": 2.7612215923081047,
+          "feasible": true
+        },
+        {
+          "config": {
+            "model": "llama3.2:3b",
+            "num_predict": 8,
+            "temperature": 0.0,
+            "prompt": "fewshot"
+          },
+          "accuracy": 0.6923076923076923,
+          "mean_latency_s": 2.7505725692300564,
+          "feasible": true
+        },
+        {
+          "config": {
+            "model": "llama3.2:1b",
+            "num_predict": 16,
+            "temperature": 0.0,
+            "prompt": "strict"
+          },
+          "accuracy": 0.46153846153846156,
+          "mean_latency_s": 2.5129726230770757,
+          "feasible": true
+        },
+        {
+          "config": {
+            "model": "llama3.2:3b",
+            "num_predict": 32,
+            "temperature": 0.3,
+            "prompt": "strict"
+          },
+          "accuracy": 0.8461538461538461,
+          "mean_latency_s": 2.7170883230772653,
+          "feasible": true
+        },
+        {
+          "config": {
+            "model": "llama3.2:3b",
+            "num_predict": 8,
+            "temperature": 0.3,
+            "prompt": "strict"
+          },
+          "accuracy": 0.8461538461538461,
+          "mean_latency_s": 2.766903261538223,
+          "feasible": true
+        },
+        {
+          "config": {
+            "model": "llama3.2:1b",
+            "num_predict": 8,
+            "temperature": 0.0,
+            "prompt": "strict"
+          },
+          "accuracy": 0.46153846153846156,
+          "mean_latency_s": 2.519157907691876,
+          "feasible": true
+        },
+        {
+          "config": {
+            "model": "llama3.2:3b",
+            "num_predict": 16,
+            "temperature": 0.3,
+            "prompt": "strict"
+          },
+          "accuracy": 0.7692307692307693,
+          "mean_latency_s": 2.753122607692393,
+          "feasible": true
+        },
+        {
+          "config": {
+            "model": "llama3.2:3b",
+            "num_predict": 8,
+            "temperature": 0.0,
+            "prompt": "strict"
+          },
+          "accuracy": 0.6923076923076923,
+          "mean_latency_s": 2.742416192307876,
+          "feasible": true
+        },
+        {
+          "config": {
+            "model": "llama3.2:3b",
+            "num_predict": 8,
+            "temperature": 0.3,
+            "prompt": "fewshot"
+          },
+          "accuracy": 0.6923076923076923,
+          "mean_latency_s": 2.7647358615386812,
+          "feasible": true
+        }
+      ]
+    },
+    "distinct_configs_evaluated": {
+      "label": "measured",
+      "value": 11
+    }
+  },
+  "notes": "single run per config; accuracy granularity is 1/13; cache shares evals across methods"
+}

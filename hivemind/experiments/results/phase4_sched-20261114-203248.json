@@ -1,0 +1,144 @@
+{
+  "experiment": "phase4_sched",
+  "environment": {
+    "git_commit": "1d05d9231fb73b72dbe85dd402ab2216892d3f74",
+    "git_dirty": true,
+    "os": "Windows-11-10.0.26300-SP0",
+    "cpu": "13th Gen Intel(R) Core(TM) i5-13420H",
+    "ram_gb": "15.6",
+    "python": "3.14.5",
+    "qemu": "QEMU emulator version 10.2.2",
+    "rustc_nightly": "<unavailable: FileNotFoundError>",
+    "ollama": "ollama version is 0.40.16",
+    "utc": "2026-11-14T15:02:51+00:00"
+  },
+  "config": {
+    "space": [
+      [
+        "policy",
+        [
+          "fifo",
+          "priority",
+          "edf",
+          "dep_aware",
+          "slack_shed"
+        ]
+      ],
+      [
+        "model_slots",
+        [
+          1,
+          2,
+          3,
+          4
+        ]
+      ],
+      [
+        "retries",
+        [
+          0,
+          1,
+          2
+        ]
+      ],
+      [
+        "backoff",
+        [
+          0.25,
+          0.5,
+          1.0,
+          2.0
+        ]
+      ]
+    ],
+    "ceiling_model_slots": 3,
+    "budget": 15,
+    "objective": "mean deadline miss rate over 3 workload seeds + 0.05*model_slots"
+  },
+  "seed": "search seeds 0..9; workload seeds 500..502",
+  "repetitions": 10,
+  "warmup": "none",
+  "failed_runs": [],
+  "metrics": {
+    "results": {
+      "label": "simulated",
+      "value": {
+        "A_medium_chain": {
+          "grid": {
+            "optimum": 0.1788888888888889,
+            "config": {
+              "policy": "edf",
+              "model_slots": 3,
+              "retries": 2,
+              "backoff": 0.25
+            },
+            "evaluations": 180,
+            "invalid_rejected": 60,
+            "wall_s": 3.4418421999998827
+          },
+          "random": {
+            "regret_mean": 0.0013333333333333363,
+            "regret_sd": 0.0028109134757052325,
+            "evals_to_within_0.02_mean": 3.2,
+            "found_within_0.02": 10,
+            "invalid_proposals_mean": 3.9,
+            "optimizer_overhead_s_mean": 0.0
+          },
+          "bayes_gp_ei": {
+            "regret_mean": 0.0004444444444444445,
+            "regret_sd": 0.0014054567378526132,
+            "evals_to_within_0.02_mean": 3.2,
+            "found_within_0.02": 10,
+            "invalid_proposals_mean": 60.0,
+            "optimizer_overhead_s_mean": 0.01402338000061718
+          }
+        },
+        "B_overload_fanout": {
+          "grid": {
+            "optimum": 0.4988888888888889,
+            "config": {
+              "policy": "slack_shed",
+              "model_slots": 3,
+              "retries": 2,
+              "backoff": 0.25
+            },
+            "evaluations": 180,
+            "invalid_rejected": 60,
+            "wall_s": 12.032501399999092
+          },
+          "random": {
+            "regret_mean": 0.08766666666666668,
+            "regret_sd": 0.13522165920939427,
+            "evals_to_within_0.02_mean": 10.5,
+            "found_within_0.02": 7,
+            "invalid_proposals_mean": 3.9,
+            "optimizer_overhead_s_mean": 0.0
+          },
+          "bayes_gp_ei": {
+            "regret_mean": 0.008666666666666661,
+            "regret_sd": 0.01597151098792193,
+            "evals_to_within_0.02_mean": 8.8,
+            "found_within_0.02": 9,
+            "invalid_proposals_mean": 60.0,
+            "optimizer_overhead_s_mean": 0.013694219999888447
+          }
+        }
+      }
+    },
+    "transfer": {
+      "label": "simulated",
+      "value": {
+        "config_from_A": {
+          "policy": "edf",
+          "model_slots": 3,
+          "retries": 2,
+          "backoff": 0.25
+        },
+        "value_on_B": 1.0544444444444445,
+        "B_optimum": 0.4988888888888889,
+        "transfer_regret": 0.5555555555555556
+      }
+    }
+  },
+  "notes": ""
+}

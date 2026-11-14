@@ -1,0 +1,148 @@
+{
+  "experiment": "phase3_real",
+  "environment": {
+    "git_commit": "1d05d9231fb73b72dbe85dd402ab2216892d3f74",
+    "git_dirty": true,
+    "os": "Windows-11-10.0.26300-SP0",
+    "cpu": "13th Gen Intel(R) Core(TM) i5-13420H",
+    "ram_gb": "15.6",
+    "python": "3.14.5",
+    "qemu": "QEMU emulator version 10.2.2",
+    "rustc_nightly": "<unavailable: FileNotFoundError>",
+    "ollama": "ollama version is 0.40.16",
+    "utc": "2026-11-14T16:57:14+00:00"
+  },
+  "config": {
+    "model": "llama3.2:1b",
+    "workflows": 8,
+    "rate_wf_per_s": 0.22,
+    "model_slots": 1
+  },
+  "seed": "77+rep",
+  "repetitions": 2,
+  "warmup": "one model call before first run",
+  "failed_runs": [],
+  "metrics": {
+    "fifo": {
+      "label": "measured",
+      "value": {
+        "deadline_miss_rate": {
+          "mean": 0.1875,
+          "runs": [
+            0.375,
+            0.0
+          ]
+        },
+        "completion_mean_s": {
+          "mean": 6.431652574072448,
+          "runs": [
+            6.968297771688192,
+            5.895007376456703
+          ]
+        },
+        "queue_wait_mean_s": {
+          "mean": 0.9156827650361206,
+          "runs": [
+            0.9841687217395583,
+            0.8471968083326828
+          ]
+        },
+        "model_call_mean_s": {
+          "mean": 2.5274845880951164,
+          "runs": [
+            2.5200627928565416,
+            2.5349063833336913
+          ]
+        },
+        "makespan_s": {
+          "mean": 49.84199439999975,
+          "runs": [
+            50.63566329999958,
+            49.04832549999992
+          ]
+        }
+      }
+    },
+    "edf": {
+      "label": "measured",
+      "value": {
+        "deadline_miss_rate": {
+          "mean": 0.0625,
+          "runs": [
+            0.125,
+            0.0
+          ]
+        },
+        "completion_mean_s": {
+          "mean": 5.623780005322349,
+          "runs": [
+            5.9438630216871005,
+            5.303696988957596
+          ]
+        },
+        "queue_wait_mean_s": {
+          "mean": 0.6931266985506115,
+          "runs": [
+            0.8656592304347293,
+            0.5205941666664936
+          ]
+        },
+        "model_call_mean_s": {
+          "mean": 2.5239441005957515,
+          "runs": [
+            2.5175306428573094,
+            2.530357558334193
+          ]
+        },
+        "makespan_s": {
+          "mean": 49.85684115000004,
+          "runs": [
+            50.69413709999935,
+            49.01954520000072
+          ]
+        }
+      }
+    },
+    "dep_aware": {
+      "label": "measured",
+      "value": {
+        "deadline_miss_rate": {
+          "mean": 0.125,
+          "runs": [
+            0.125,
+            0.125
+          ]
+        },
+        "completion_mean_s": {
+          "mean": 6.026113217821692,
+          "runs": [
+            6.259300209185547,
+            5.792926226457836
+          ]
+        },
+        "queue_wait_mean_s": {
+          "mean": 0.8491669362323018,
+          "runs": [
+            0.9667955391307023,
+            0.7315383333339014
+          ]
+        },
+        "model_call_mean_s": {
+          "mean": 2.5187400386900576,
+          "runs": [
+            2.532523335714099,
+            2.504956741666016
+          ]
+        },
+        "makespan_s": {
+          "mean": 49.89453454999966,
+          "runs": [
+            50.760242199998174,
+            49.02882690000115
+          ]
+        }
+      }
+    }
+  },
+  "notes": "real local-model calls; one model slot (Ollama serial)"
+}

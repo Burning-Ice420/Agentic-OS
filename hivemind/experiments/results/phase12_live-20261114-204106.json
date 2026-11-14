@@ -1,0 +1,154 @@
+{
+  "experiment": "phase12_live",
+  "environment": {
+    "git_commit": "1d05d9231fb73b72dbe85dd402ab2216892d3f74",
+    "git_dirty": true,
+    "os": "Windows-11-10.0.26300-SP0",
+    "cpu": "13th Gen Intel(R) Core(TM) i5-13420H",
+    "ram_gb": "15.6",
+    "python": "3.14.5",
+    "qemu": "QEMU emulator version 10.2.2",
+    "rustc_nightly": "<unavailable: FileNotFoundError>",
+    "ollama": "ollama version is 0.40.16",
+    "utc": "2026-11-14T15:11:08+00:00"
+  },
+  "config": {
+    "boot": "C:\\hivemind\\boot_p.bin",
+    "workflow": [
+      [
+        "prov mark wf1_lineage",
+        0.6
+      ],
+      [
+        "blob write 1 temp 50",
+        0.8
+      ],
+      [
+        "agent new watcher 1",
+        0.6
+      ],
+      [
+        "agent rule 2 temp gt:80 alert high",
+        0.6
+      ],
+      [
+        "blob write 1 temp 95",
+        2.8
+      ],
+      [
+        "prov mark wf2_capabilities",
+        0.6
+      ],
+      [
+        "cap enforce on",
+        0.6
+      ],
+      [
+        "agent new rogue 1",
+        0.6
+      ],
+      [
+        "agent rule 3 temp gt:90 hijack yes",
+        0.6
+      ],
+      [
+        "agent rule 2 temp gt:85 decision ai:check",
+        0.6
+      ],
+      [
+        "blob write 1 temp 50",
+        2.8
+      ],
+      [
+        "blob write 1 temp 97",
+        2.8
+      ],
+      [
+        "cap grant 2 node:1 rw",
+        0.6
+      ],
+      [
+        "blob write 1 temp 50",
+        2.8
+      ],
+      [
+        "blob write 1 temp 98",
+        2.8
+      ],
+      [
+        "cap list",
+        0.8
+      ],
+      [
+        "prov flush",
+        1.5
+      ],
+      [
+        "prov stats",
+        1.0
+      ]
+    ]
+  },
+  "seed": null,
+  "repetitions": 1,
+  "warmup": "none",
+  "failed_runs": [],
+  "metrics": {
+    "checks": {
+      "label": "measured",
+      "value": {
+        "agent_write_has_attributed_writer": true,
+        "agent_write_chain_is_write<-fire<-read(temp)": true,
+        "agent_write_was_broadcast_with_parent": true,
+        "rogue_agent_3_denied": true,
+        "rogue_agent_3_never_wrote": true,
+        "agent_2_denied_before_grant": true,
+        "agent_2_allowed_after_grant_read_and_write": true,
+        "authorized_write_cites_its_allow_event": true,
+        "ai_tool_denied_without_capability": true,
+        "no_events_dropped_kernel_report": true,
+        "no_id_gaps": true,
+        "no_malformed_lines": true,
+        "every_write_has_actor": true,
+        "every_agent_or_model_write_has_parent": true
+      }
+    },
+    "all_pass": {
+      "label": "measured",
+      "value": true
+    },
+    "event_counts": {
+      "label": "measured",
+      "value": {
+        "agent_fire": 3,
+        "agent_rule": 3,
+        "agent_spawned": 2,
+        "cap_allow": 3,
+        "cap_change": 2,
+        "cap_deny": 7,
+        "create": 1,
+        "marker": 2,
+        "mesh_send": 2,
+        "read": 3,
+        "write": 10
+      }
+    },
+    "kernel_reported": {
+      "label": "measured",
+      "value": {
+        "9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd": {
+          "emitted": "38",
+          "dropped": "0",
+          "drained": "38",
+          "pending": "0",
+          "next_id": "39"
+        }
+      }
+    },
+    "workflow_seconds": {
+      "label": "measured",
+      "value": 575.8
+    }
+  },
+  "notes": "fixture: services/tests/fixtures/live_phase12.log"
+}

@@ -1,0 +1,83 @@
+{
+  "experiment": "phase12_overhead",
+  "environment": {
+    "git_commit": "1d05d9231fb73b72dbe85dd402ab2216892d3f74",
+    "git_dirty": true,
+    "os": "Windows-11-10.0.26300-SP0",
+    "cpu": "13th Gen Intel(R) Core(TM) i5-13420H",
+    "ram_gb": "15.6",
+    "python": "3.14.5",
+    "qemu": "QEMU emulator version 10.2.2",
+    "rustc_nightly": "<unavailable: FileNotFoundError>",
+    "ollama": "ollama version is 0.40.16",
+    "utc": "2026-11-14T15:26:28+00:00"
+  },
+  "config": {
+    "boot": "C:\\hivemind\\boot_p.bin",
+    "writes_per_run": 2000,
+    "checks_per_run": 20000,
+    "cap_table_sizes": [
+      1,
+      16,
+      64,
+      256
+    ],
+    "accel": "whpx"
+  },
+  "seed": null,
+  "repetitions": 3,
+  "warmup": "none",
+  "failed_runs": [],
+  "metrics": {
+    "bench": {
+      "label": "measured",
+      "value": {
+        "write.prov_off": {
+          "ns_mean": 5789.333333333333,
+          "ns_sd": 408.39972249419236,
+          "cycles_mean": 15125.0,
+          "runs": 3
+        },
+        "write.prov_on_record": {
+          "ns_mean": 8302.666666666666,
+          "ns_sd": 400.2465906579759,
+          "cycles_mean": 21690.333333333332,
+          "runs": 3,
+          "overhead_vs_off_x": 1.4341317365269461
+        },
+        "write.prov_on_ship_com1": {
+          "ns_mean": 1326843.0,
+          "ns_sd": 41418.69579066922,
+          "cycles_mean": 3466065.0,
+          "runs": 3,
+          "overhead_vs_off_x": 229.1875287885767
+        },
+        "cap.check.caps=1": {
+          "ns_mean": 345.0,
+          "ns_sd": 21.517434791350013,
+          "cycles_mean": 903.0,
+          "runs": 3
+        },
+        "cap.check.caps=16": {
+          "ns_mean": 484.3333333333333,
+          "ns_sd": 11.590225767142472,
+          "cycles_mean": 1266.0,
+          "runs": 3
+        },
+        "cap.check.caps=64": {
+          "ns_mean": 827.3333333333334,
+          "ns_sd": 31.89566323708183,
+          "cycles_mean": 2161.3333333333335,
+          "runs": 3
+        },
+        "cap.check.caps=256": {
+          "ns_mean": 2290.3333333333335,
+          "ns_sd": 26.159765544311234,
+          "cycles_mean": 5982.333333333333,
+          "runs": 3
+        }
+      }
+    }
+  },
+  "notes": "TSC in a WHPX guest, calibrated vs PIT; virtualized timing"
+}
