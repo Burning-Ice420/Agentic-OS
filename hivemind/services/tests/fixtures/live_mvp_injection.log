@@ -1,0 +1,84 @@
+[serial] HiveMind OS v0.1 — boot started
+[boot] heap initialized
+[boot] heap allocation probe passed: 66
+[boot] starting hive init
+[hive] new
+[hive] create root
+[hive] write version
+[hive] write status
+[hive] store global
+[hive] done
+[boot] hive init complete
+[boot] instance-uuid=33fd764d-ec62-4a92-8275-6db2d30e4dd5
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|1|0|create|kernel|1|kernel-root|-|-|
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|2|0|write|kernel|1|kernel-root|version|-|len=3;vh=5080ae86
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|3|0|write|kernel|1|kernel-root|status|-|len=7;vh=147eb74c
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|4|826|create|peer|4|inbox|-|-|
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|5|826|write|peer|4|inbox|seed|-|len=1;vh=350ca8af
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|6|1190|create|shell|6|local|-|-|
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|7|1721|cap_change|shell|0|-|enforce_on|-|
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|8|2312|agent_spawned|shell|4|-|-|-|agent_id=2;name=research_u
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|9|3251|agent_rule|shell|4|-|doc|-|agent_id=2;action=drafted
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|10|3845|agent_spawned|shell|4|-|-|-|agent_id=3;name=analysis_u
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|11|5015|agent_rule|shell|4|-|notes|-|agent_id=3;action=ready
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|12|5609|agent_spawned|shell|4|-|-|-|agent_id=4;name=reporter_u
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|13|6932|agent_rule|shell|4|-|summary|-|agent_id=4;action=ai:summarize
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|14|7501|cap_change|shell|0|-|grant|-|
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|15|8069|cap_change|shell|0|-|grant|-|
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|16|8611|cap_change|shell|0|-|grant|-|
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|17|9180|cap_change|shell|0|-|grant|-|
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|18|9775|agent_spawned|shell|6|-|-|-|agent_id=5;name=research_c
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|19|10714|agent_rule|shell|6|-|doc|-|agent_id=5;action=drafted
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|20|11308|agent_spawned|shell|6|-|-|-|agent_id=6;name=analysis_c
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|21|12476|agent_rule|shell|6|-|notes|-|agent_id=6;action=ready
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|22|13071|agent_spawned|shell|6|-|-|-|agent_id=7;name=reporter_c
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|23|14395|agent_rule|shell|6|-|summary|-|agent_id=7;action=ai:summarize
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|24|14963|cap_change|shell|0|-|grant|-|
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|25|15529|cap_change|shell|0|-|grant|-|
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|26|16072|cap_change|shell|0|-|grant|-|
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|27|16640|cap_change|shell|0|-|grant|-|
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|28|17311|cap_change|shell|0|-|grant|-|
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|29|17931|marker|shell|0|-|mvp_untrusted|-|
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|30|17958|cap_allow|peer|4|inbox|doc|-|op=w;cap=9;pv=11
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|31|17958|write|peer|4|inbox|doc|-|len=42;vh=8524193f;auth=30
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|32|17964|cap_allow|agent:2|4|inbox|doc|-|op=r;cap=1;pv=11
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|33|17964|read|agent:2|4|inbox|doc|-|len=42;vh=8524193f;rule=0;cond=any
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|34|17964|agent_fire|agent:2|4|inbox|notes|33|rule=0
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|35|17964|cap_allow|agent:2|4|inbox|notes|34|op=w;cap=1;pv=11
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|36|17964|write|agent:2|4|inbox|notes|34|len=7;vh=6f3fca7d;auth=35
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|37|17964|mesh_send|agent:2|4|inbox|notes|36|len=7;vh=6f3fca7d
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|38|17982|cap_allow|agent:3|4|inbox|notes|-|op=r;cap=2;pv=11
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|39|17982|read|agent:3|4|inbox|notes|-|len=7;vh=6f3fca7d;rule=0;cond===drafted
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|40|17982|agent_fire|agent:3|4|inbox|summary|39|rule=0
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|41|17982|cap_allow|agent:3|4|inbox|summary|40|op=w;cap=2;pv=11
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|42|17982|write|agent:3|4|inbox|summary|40|len=5;vh=660ec0f4;auth=41
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|43|17982|mesh_send|agent:3|4|inbox|summary|42|len=5;vh=660ec0f4
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|44|18000|cap_allow|agent:4|4|inbox|summary|-|op=r;cap=3;pv=11
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|45|18000|read|agent:4|4|inbox|summary|-|len=5;vh=660ec0f4;rule=0;cond===ready
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|46|18000|agent_fire|agent:4|4|inbox|report|45|rule=0
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|47|18000|cap_allow|agent:4|0|tool:ai|-|46|op=i;cap=4;pv=11
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|48|18000|read|agent:4|4|inbox|*|46|len=0;purpose=offload_context
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|49|18000|offload|agent:4|4|inbox|*|48|tool=ai;prompt_len=9;ctx_len=81;auth=47
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|50|18202|cap_deny|model:agent:4|4|inbox|decision|49|op=w;reason=no_capability;pv=11
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|51|18953|marker|shell|0|-|mvp_control|-|
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|52|19958|write|shell|6|local|doc|-|len=21;vh=f608fd5b
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|53|19962|cap_allow|agent:5|6|local|doc|-|op=r;cap=5;pv=11
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|54|19962|read|agent:5|6|local|doc|-|len=21;vh=f608fd5b;rule=0;cond=any
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|55|19962|agent_fire|agent:5|6|local|notes|54|rule=0
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|56|19962|cap_allow|agent:5|6|local|notes|55|op=w;cap=5;pv=11
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|57|19962|write|agent:5|6|local|notes|55|len=7;vh=6f3fca7d;auth=56
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|58|19962|mesh_send|agent:5|6|local|notes|57|len=7;vh=6f3fca7d
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|59|19980|cap_allow|agent:6|6|local|notes|-|op=r;cap=6;pv=11
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|60|19980|read|agent:6|6|local|notes|-|len=7;vh=6f3fca7d;rule=0;cond===drafted
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|61|19980|agent_fire|agent:6|6|local|summary|60|rule=0
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|62|19980|cap_allow|agent:6|6|local|summary|61|op=w;cap=6;pv=11
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|63|19980|write|agent:6|6|local|summary|61|len=5;vh=660ec0f4;auth=62
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|64|19980|mesh_send|agent:6|6|local|summary|63|len=5;vh=660ec0f4
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|65|19998|cap_allow|agent:7|6|local|summary|-|op=r;cap=7;pv=11
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|66|19998|read|agent:7|6|local|summary|-|len=5;vh=660ec0f4;rule=0;cond===ready
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|67|19998|agent_fire|agent:7|6|local|report|66|rule=0
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|68|19998|cap_allow|agent:7|0|tool:ai|-|67|op=i;cap=8;pv=11
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|69|19998|read|agent:7|6|local|*|67|len=0;purpose=offload_context
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|70|19998|offload|agent:7|6|local|*|69|tool=ai;prompt_len=9;ctx_len=53;auth=68
+PEV|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|71|20046|cap_deny|model:agent:7|6|local|decide|70|op=w;reason=no_capability;pv=11
+PSTAT|1|33fd764d-ec62-4a92-8275-6db2d30e4dd5|emitted=71;dropped=0;drained=71;pending=0;next_id=72

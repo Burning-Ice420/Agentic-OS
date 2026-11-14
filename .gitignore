@@ -40,3 +40,6 @@ __pycache__/
 
 # Local docs (kept out of git)
 docs/
+
+# Real guest traces used as provenance test fixtures
+!hivemind/services/tests/fixtures/*.log

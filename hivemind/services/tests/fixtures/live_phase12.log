@@ -1,0 +1,52 @@
+[serial] HiveMind OS v0.1 — boot started
+[boot] heap initialized
+[boot] heap allocation probe passed: 66
+[boot] starting hive init
+[hive] new
+[hive] create root
+[hive] write version
+[hive] write status
+[hive] store global
+[hive] done
+[boot] hive init complete
+[boot] instance-uuid=9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|1|0|create|kernel|1|kernel-root|-|-|
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|2|0|write|kernel|1|kernel-root|version|-|len=3;vh=5080ae86
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|3|0|write|kernel|1|kernel-root|status|-|len=7;vh=147eb74c
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|4|1507|marker|shell|0|-|wf1_lineage|-|
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|5|2055|write|shell|1|kernel-root|temp|-|len=2;vh=83e140a0
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|6|2581|agent_spawned|shell|1|-|-|-|agent_id=2;name=watcher
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|7|3488|agent_rule|shell|1|-|temp|-|agent_id=2;action=high
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|8|4037|write|shell|1|kernel-root|temp|-|len=2;vh=08fe9413
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|9|4050|read|agent:2|1|kernel-root|temp|-|len=2;vh=08fe9413;rule=0;cond=>80
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|10|4050|agent_fire|agent:2|1|kernel-root|alert|9|rule=0
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|11|4050|write|agent:2|1|kernel-root|alert|10|len=4;vh=3dddb9fd
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|12|4050|mesh_send|agent:2|1|kernel-root|alert|11|len=4;vh=3dddb9fd
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|13|4778|marker|shell|0|-|wf2_capabilities|-|
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|14|5173|cap_change|shell|0|-|enforce_on|-|
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|15|5644|agent_spawned|shell|1|-|-|-|agent_id=3;name=rogue
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|16|6551|agent_rule|shell|1|-|temp|-|agent_id=3;action=yes
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|17|6570|cap_deny|agent:3|1|kernel-root|temp|-|op=r;reason=no_capability;pv=2
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|18|7639|agent_rule|shell|1|-|temp|-|agent_id=2;action=ai:check
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|19|7650|cap_deny|agent:2|1|kernel-root|temp|-|op=r;reason=no_capability;pv=2
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|20|8187|write|shell|1|kernel-root|temp|-|len=2;vh=83e140a0
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|21|8776|write|shell|1|kernel-root|temp|-|len=2;vh=0afe9739
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|22|8784|cap_deny|agent:2|1|kernel-root|temp|-|op=r;reason=no_capability;pv=2
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|23|8784|cap_deny|agent:2|1|kernel-root|temp|-|op=r;reason=no_capability;pv=2
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|24|8784|cap_deny|agent:3|1|kernel-root|temp|-|op=r;reason=no_capability;pv=2
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|25|9389|cap_change|shell|0|-|grant|-|
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|26|9937|write|shell|1|kernel-root|temp|-|len=2;vh=83e140a0
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|27|10526|write|shell|1|kernel-root|temp|-|len=2;vh=13fea564
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|28|10530|cap_allow|agent:2|1|kernel-root|temp|-|op=r;cap=1;pv=3
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|29|10530|read|agent:2|1|kernel-root|temp|-|len=2;vh=13fea564;rule=0;cond=>80
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|30|10530|agent_fire|agent:2|1|kernel-root|alert|29|rule=0
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|31|10530|cap_allow|agent:2|1|kernel-root|alert|30|op=w;cap=1;pv=3
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|32|10530|write|agent:2|1|kernel-root|alert|30|len=4;vh=3dddb9fd;auth=31
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|33|10530|cap_allow|agent:2|1|kernel-root|temp|-|op=r;cap=1;pv=3
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|34|10530|read|agent:2|1|kernel-root|temp|-|len=2;vh=13fea564;rule=1;cond=>85
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|35|10530|agent_fire|agent:2|1|kernel-root|decision|34|rule=1
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|36|10530|cap_deny|agent:2|0|tool:ai|-|35|op=i;reason=no_capability;pv=3
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|37|10530|cap_deny|agent:3|1|kernel-root|temp|-|op=r;reason=no_capability;pv=3
+PEV|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|38|10530|mesh_send|agent:2|1|kernel-root|alert|32|len=4;vh=3dddb9fd
+PSTAT|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|emitted=38;dropped=0;drained=38;pending=0;next_id=39
+PSTAT|1|9a9ad3b3-6dcd-40ac-90a7-11e771ea12dd|emitted=38;dropped=0;drained=38;pending=0;next_id=39
