@@ -122,6 +122,9 @@ pub fn run() -> ! {
         // Poll COM3 for AI-accelerator responses (the slow deliberation tier).
         crate::llm::poll_and_apply();
 
+        // Ship provenance events to user space (COM1, `PEV|...` lines).
+        crate::prov::drain(32);
+
         // Periodic work, gated on the tick actually advancing so it runs at a
         // steady rate regardless of how fast the loop spins.
         let t = crate::interrupts::current_tick();
@@ -182,7 +185,7 @@ fn execute(line: &str) {
     // Commands that change persistent state → flag for the debounced autosave.
     if matches!(
         parts[0],
-        "mem" | "m" | "blob" | "b" | "link" | "signal" | "s"
+        "mem" | "m" | "blob" | "b" | "link" | "signal" | "s" | "cap"
             | "mkdir" | "touch" | "write" | "rm" | "agent" | "ag"
     ) {
         crate::disk::persist::mark_dirty();
@@ -235,6 +238,11 @@ fn execute(line: &str) {
         "sysinfo" | "whoami" | "uuid" => cmd_sysinfo(),
         // ── AI accelerator (slow deliberation tier) ──
         "ai"            => cmd_ai(&parts[1..]),
+        // ── provenance, capabilities, scheduling ──
+        "prov"          => cmd_prov(&parts[1..]),
+        "cap"           => cmd_cap(&parts[1..]),
+        "sched"         => cmd_sched(&parts[1..]),
+        "bench"         => cmd_bench(&parts[1..]),
         // ── process list ──
         "ps"            => cmd_ps(),
         other           => {
@@ -258,6 +266,7 @@ fn cmd_help(args: &[&str]) {
             println!("  help agent   Reactive agents + audit log");
             println!("  help net     Mesh networking (VM-to-VM over COM2)");
             println!("  help sys     System: sysinfo, save/load, time, ps, ...");
+            println!("  help sec     Provenance (prov), capabilities (cap), sched");
             println!();
             println!("  Quick: hive | mem list | ui (desktop) | sysinfo | halt");
             println!("  PageUp / PageDown scroll this console.");
@@ -288,6 +297,17 @@ fn cmd_help(args: &[&str]) {
             println!("                              cond: gt:N  lt:N  eq:S  any");
             println!("  agent tick                  Fire all agents now");
             println!("  agent log                   Show the agent audit log");
+        }
+        Some("sec") | Some("security") | Some("prov") => {
+            println!("  Provenance, capabilities, scheduling");
+            println!("  prov stats|on|off|flush      Event stream on COM1 (PEV lines)");
+            println!("  prov mark <label>           Delimit a workflow in the trace");
+            println!("  cap enforce on|off          Default-deny for agents + peers");
+            println!("  cap grant <ag|peer> <node:ID|ns:PFX|tool:ai> <rwid> [ttl]");
+            println!("  cap delegate <holder> <cap> <to> <ops> [res] [ttl]");
+            println!("  cap revoke <id>  cap list  cap explain <event_id>");
+            println!("  sched policy fifo|priority  sched budget <n>  sched stats");
+            println!("  agent prio <id> <n>         Agent scheduling priority");
         }
         Some("net") | Some("mesh") => {
             println!("  Mesh (VM-to-VM over COM2 serial)");
@@ -357,7 +377,7 @@ fn cmd_mem(args: &[&str]) {
             }
             let name   = args[1];
             let parent = args.get(2).and_then(|s| s.parse::<u64>().ok());
-            let id     = hive::with_hive(|h| h.create_memory(name, parent));
+            let id     = hive::with_hive(|h| h.create_memory_as(crate::prov::Actor::Shell, name, parent));
             vga_buffer::set_color(Color::White, Color::Black);
             println!("  Created memory '{}' → id {}", name, id);
             vga_buffer::set_color(Color::LightGreen, Color::Black);
@@ -392,7 +412,15 @@ fn cmd_mem(args: &[&str]) {
                 Some(n) => n,
                 None    => { println!("  Usage: mem mirror <id>  (replicate this node to peer VMs)"); return; }
             };
-            let ok = hive::with_hive(|h| h.set_mirror(id));
+            let ok = hive::with_hive(|h| {
+                let ok = h.set_mirror(id);
+                if ok {
+                    let name = h.memory_name(id).unwrap_or("?").to_string();
+                    crate::prov::emit(crate::prov::Kind::Link, crate::prov::Actor::Shell, id, &name, "-", None,
+                        crate::prov::attrs(&[("type", "Mirror")]));
+                }
+                ok
+            });
             if ok {
                 vga_buffer::set_color(Color::White, Color::Black);
                 println!("  Memory {} is now mirrored -> its writes replicate to peer VMs.", id);
@@ -410,6 +438,12 @@ fn cmd_mem(args: &[&str]) {
             let age = args.get(2).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
             let now = crate::interrupts::current_tick();
             let (n, freed) = hive::with_hive(|h| h.page_out_cold(id, now, age));
+            {
+                let mut a = String::new();
+                use core::fmt::Write;
+                let _ = write!(a, "blobs={};bytes={}", n, freed);
+                crate::prov::emit(crate::prov::Kind::PageOut, crate::prov::Actor::Shell, id, "-", "*", None, a);
+            }
             vga_buffer::set_color(Color::White, Color::Black);
             println!("  Paged {} blob(s) out to disk, ~{} bytes freed from RAM.", n, freed);
             println!("  'blob read {} <key>' pages one back in transparently.", id);
@@ -442,20 +476,21 @@ fn cmd_blob(args: &[&str]) {
             let value = BlobValue::parse(&args[3..].join(" "));
             // Write locally; if the node is mirrored, capture its name so we can
             // replicate the write to peer VMs after releasing the hive lock.
-            let (ok, mirror_name) = hive::with_hive(|h| {
-                let ok = h.write_blob(id, key, value.clone());
+            let (ok, mirror_name, wev) = hive::with_hive(|h| {
+                let r = h.write_blob_as(crate::prov::Actor::Shell, id, key, value.clone(), None);
+                let (ok, wev) = match r { crate::hive::WriteResult::Written(e) => (true, e), _ => (false, 0) };
                 let name = if ok && h.is_mirrored(id) {
                     h.memory_name(id).map(|s| s.to_string())
                 } else {
                     None
                 };
-                (ok, name)
+                (ok, name, wev)
             });
             if ok {
                 vga_buffer::set_color(Color::White, Color::Black);
                 println!("  Written '{}' to memory {}.", key, id);
                 if let Some(name) = mirror_name {
-                    crate::net::send_blob(&name, key, &value.display());
+                    crate::net::send_blob_tracked(&name, key, &value.display(), crate::prov::Actor::Shell, id, Some(wev));
                     println!("  (mirrored -> replicated to peer VMs)");
                 }
                 vga_buffer::set_color(Color::LightGreen, Color::Black);
@@ -474,7 +509,17 @@ fn cmd_blob(args: &[&str]) {
             };
             let key = args[2];
             // Tiered memory: if the value was paged out to disk, page it back in first.
-            let paged_in = hive::with_hive(|h| h.page_in_blob(id, key));
+            let paged_in = hive::with_hive(|h| {
+                let r = h.page_in_blob(id, key);
+                if r == Some(true) {
+                    let name = h.memory_name(id).unwrap_or("?").to_string();
+                    crate::prov::emit(crate::prov::Kind::PageIn, crate::prov::Actor::Shell, id, &name, key, None, String::new());
+                }
+                if r.is_some() {
+                    h.note_read(crate::prov::Actor::Shell, id, key, None, "");
+                }
+                r
+            });
             hive::with_hive(|h| {
                 match h.read_blob(id, key) {
                     None       => println!("  Blob '{}' not found in memory {}.", key, id),
@@ -512,7 +557,17 @@ fn cmd_link(args: &[&str]) {
         other => { println!("  Unknown edge type: '{}'. Use: Sync Signal Mirror Dependency", other); return; }
     };
     let type_name = edge.name().to_string();
-    let ok = hive::with_hive(|h| h.link_memories(from, to, edge));
+    let ok = hive::with_hive(|h| {
+        let ok = h.link_memories(from, to, edge);
+        if ok {
+            let mut a = String::new();
+            use core::fmt::Write;
+            let _ = write!(a, "type={};to={}", type_name, to);
+            let name = h.memory_name(from).unwrap_or("?").to_string();
+            crate::prov::emit(crate::prov::Kind::Link, crate::prov::Actor::Shell, from, &name, "-", None, a);
+        }
+        ok
+    });
     if ok {
         vga_buffer::set_color(Color::White, Color::Black);
         println!("  Linked {} --{}→ {}", from, type_name, to);
@@ -579,7 +634,7 @@ fn cmd_net(args: &[&str]) {
             let mem = args[1];
             let key = args[2];
             let val = args[3..].join(" ");
-            crate::net::send_blob(mem, key, &val);
+            crate::net::send_blob_tracked(mem, key, &val, crate::prov::Actor::Shell, 0, None);
             vga_buffer::set_color(Color::White, Color::Black);
             println!("  Sent -> peer VMs: {}:{} = {}", mem, key, val);
             vga_buffer::set_color(Color::LightGreen, Color::Black);
@@ -629,6 +684,15 @@ fn cmd_agent(args: &[&str]) {
             vga_buffer::set_color(Color::White, Color::Black);
             println!("  Agent '{}' created -> id #{}, watching memory #{}", name, id, mid);
             vga_buffer::set_color(Color::LightGreen, Color::Black);
+        }
+        Some("prio") => {
+            let id = args.get(1).and_then(|s| s.parse::<u64>().ok());
+            let p = args.get(2).and_then(|s| s.parse::<i32>().ok());
+            match (id, p) {
+                (Some(i), Some(p)) if crate::agent::set_priority(i, p) => println!("  Agent #{} priority = {}", i, p),
+                (Some(i), Some(_)) => println!("  Agent #{} not found.", i),
+                _ => println!("  Usage: agent prio <id> <priority>"),
+            }
         }
         Some("rule") => {
             // agent rule <id> <watch_key> <condition> <action_key> <action_value>
@@ -826,7 +890,7 @@ fn cmd_ai(args: &[&str]) {
 
     // Gather the memory node's name + blob state as context for the model.
     let gathered = hive::with_hive(|h| {
-        h.memories.get(&id).map(|m| {
+        let out = h.memories.get(&id).map(|m| {
             let mut ctx = String::new();
             use core::fmt::Write;
             for (k, b) in &m.blobs {
@@ -834,17 +898,29 @@ fn cmd_ai(args: &[&str]) {
                 let _ = write!(ctx, "{}={}", k, b.value.display());
             }
             (m.name.clone(), ctx)
-        })
+        });
+        if let Some((name, ctx)) = &out {
+            let rd = h.note_read(crate::prov::Actor::Shell, id, "*", None, "purpose=offload_context");
+            let mut a = String::new();
+            use core::fmt::Write;
+            let _ = write!(a, "tool=ai;prompt_len={};ctx_len={}", prompt.len(), ctx.len());
+            let ev = crate::prov::emit(crate::prov::Kind::Offload, crate::prov::Actor::Shell, id, name, "*", Some(rd), a);
+            return out.map(|(n, c)| (n, c, ev));
+        }
+        None
     });
 
     match gathered {
         None => println!("  Memory node {} not found.", id),
-        Some((name, ctx)) => {
-            crate::llm::request(&name, &prompt, &ctx);
-            vga_buffer::set_color(Color::White, Color::Black);
-            println!("  AI request sent for '{}' (task: {}).", name, prompt);
-            println!("  The model's action will apply when the bridge responds.");
-            vga_buffer::set_color(Color::LightGreen, Color::Black);
+        Some((name, ctx, ev)) => {
+            if crate::llm::request_tracked(&name, &prompt, &ctx, ev, None) {
+                vga_buffer::set_color(Color::White, Color::Black);
+                println!("  AI request sent for '{}' (task: {}).", name, prompt);
+                println!("  The model's action will apply when the bridge responds.");
+                vga_buffer::set_color(Color::LightGreen, Color::Black);
+            } else {
+                println!("  No model accelerator on COM3 (start with -LLM); request not sent.");
+            }
         }
     }
 }
@@ -905,4 +981,180 @@ fn cmd_ps() {
         }
     });
     println!("  System tick: {}", tick);
+}
+
+// ── provenance ────────────────────────────────────────────────────────────────
+
+fn cmd_prov(args: &[&str]) {
+    match args.first().copied() {
+        Some("stats") | None => {
+            let (emitted, dropped, drained, pending, next) = crate::prov::stats();
+            vga_buffer::set_color(Color::White, Color::Black);
+            println!("  Provenance: {}  emitted={} dropped={} drained={} pending={} next_id={}",
+                if crate::prov::enabled() { "on" } else { "off" }, emitted, dropped, drained, pending, next);
+            vga_buffer::set_color(Color::LightGreen, Color::Black);
+            crate::prov::report_stats();
+        }
+        Some("on") => { crate::prov::set_enabled(true); println!("  Provenance recording on."); }
+        Some("off") => { crate::prov::set_enabled(false); println!("  Provenance recording off."); }
+        Some("flush") => {
+            for _ in 0..64 { crate::prov::drain(64); }
+            crate::prov::report_stats();
+            println!("  Provenance flushed to COM1.");
+        }
+        Some("mark") => {
+            let label = if args.len() > 1 { args[1..].join("_") } else { "mark".to_string() };
+            let id = crate::prov::emit_plain(crate::prov::Kind::Marker, crate::prov::Actor::Shell, &label, None, String::new());
+            println!("  Marker '{}' = event {}", label, id);
+        }
+        Some(other) => println!("  Unknown prov sub-command '{}'. Try: stats on off flush mark", other),
+    }
+}
+
+// ── capabilities ──────────────────────────────────────────────────────────────
+
+fn parse_subject(s: &str) -> Option<crate::cap_core::Subject> {
+    if s == "peer" { return Some(crate::cap_core::Subject::Peer); }
+    s.parse::<u64>().ok().map(crate::cap_core::Subject::Agent)
+}
+
+/// `node:<id>` | `ns:<prefix>` (`ns:` = every node) | `tool:<name>`
+fn parse_resource(s: &str) -> Option<crate::cap_core::Resource> {
+    use crate::cap_core::Resource;
+    if let Some(r) = s.strip_prefix("node:") { return r.parse::<u64>().ok().map(Resource::Node); }
+    if let Some(r) = s.strip_prefix("ns:") { return Some(Resource::Prefix(r.to_string())); }
+    if let Some(r) = s.strip_prefix("tool:") { return Some(Resource::Tool(r.to_string())); }
+    None
+}
+
+fn cap_changed(what: &str) {
+    crate::prov::emit_plain(crate::prov::Kind::CapChange, crate::prov::Actor::Shell, what, None, String::new());
+}
+
+fn cmd_cap(args: &[&str]) {
+    use crate::cap_core::{ops_string, parse_ops};
+    let now = crate::interrupts::current_tick();
+    match args.first().copied() {
+        Some("enforce") => {
+            let on = match args.get(1).copied() { Some("on") => true, Some("off") => false,
+                _ => { println!("  Usage: cap enforce on|off"); return; } };
+            let v = hive::with_hive(|h| { h.caps.set_enforce(on); h.caps.version });
+            cap_changed(if on { "enforce_on" } else { "enforce_off" });
+            println!("  Capability enforcement {} (policy v{}).", if on { "ON: agents and peers are default-deny" } else { "off" }, v);
+        }
+        Some("grant") => {
+            if args.len() < 4 {
+                println!("  Usage: cap grant <agent_id|peer> <node:ID|ns:PREFIX|tool:NAME> <ops rwid> [ttl_ticks]");
+                return;
+            }
+            let (subj, res, ops) = match (parse_subject(args[1]), parse_resource(args[2]), parse_ops(args[3])) {
+                (Some(a), Some(b), Some(c)) => (a, b, c),
+                _ => { println!("  Bad subject, resource or ops."); return; }
+            };
+            let ttl = args.get(4).and_then(|s| s.parse::<u64>().ok());
+            let id = hive::with_hive(|h| h.caps.grant(subj, res, ops, ttl, now));
+            cap_changed("grant");
+            println!("  Granted capability #{} ({} on {}).", id, ops_string(ops), args[2]);
+        }
+        Some("delegate") => {
+            if args.len() < 5 {
+                println!("  Usage: cap delegate <holder> <cap_id> <to> <ops> [node:ID|ns:PREFIX] [ttl]");
+                println!("  (admin-mediated: enforces the holder's bounds; agents cannot run commands)");
+                return;
+            }
+            let holder = parse_subject(args[1]);
+            let cid = args[2].parse::<u64>().ok();
+            let to = parse_subject(args[3]);
+            let ops = parse_ops(args[4]);
+            let res = args.get(5).and_then(|s| parse_resource(s));
+            let ttl = args.get(6).and_then(|s| s.parse::<u64>().ok());
+            match (holder, cid, to, ops) {
+                (Some(h0), Some(c), Some(t), Some(o)) => {
+                    match hive::with_hive(|h| h.caps.delegate(h0, c, t, o, res, ttl, now)) {
+                        Ok(id) => { cap_changed("delegate"); println!("  Delegated as capability #{}.", id); }
+                        Err(e) => println!("  Delegation refused: {:?}", e),
+                    }
+                }
+                _ => println!("  Bad arguments."),
+            }
+        }
+        Some("revoke") => {
+            match args.get(1).and_then(|s| s.parse::<u64>().ok()) {
+                Some(id) => {
+                    let n = hive::with_hive(|h| h.caps.revoke(id));
+                    cap_changed("revoke");
+                    println!("  Revoked {} capability(ies) (including delegations).", n);
+                }
+                None => println!("  Usage: cap revoke <cap_id>"),
+            }
+        }
+        Some("list") | None => {
+            hive::with_hive(|h| {
+                println!("  Enforcement: {}   policy v{}", if h.caps.enforce { "ON" } else { "off" }, h.caps.version);
+                if h.caps.caps.is_empty() { println!("  (no capabilities)"); }
+                for c in &h.caps.caps {
+                    println!("  #{:<3} {:?} {:?} {} exp={:?} {:?}{}", c.id, c.subject, c.resource, ops_string(c.ops),
+                        c.expires, c.issuer, if c.revoked { " REVOKED" } else { "" });
+                }
+            });
+        }
+        Some("explain") => {
+            match args.get(1).and_then(|s| s.parse::<u64>().ok()) {
+                Some(ev) => match crate::prov::explain(ev) {
+                    Some(t) => { vga_buffer::set_color(Color::White, Color::Black); println!("  {}", t);
+                                 vga_buffer::set_color(Color::LightGreen, Color::Black); }
+                    None => println!("  No decision recorded for event {} (only the last 64 are kept in-kernel;", ev),
+                },
+                None => println!("  Usage: cap explain <event_id>"),
+            }
+        }
+        Some(other) => println!("  Unknown cap sub-command '{}'. Try: enforce grant delegate revoke list explain", other),
+    }
+}
+
+// ── scheduling ────────────────────────────────────────────────────────────────
+
+fn cmd_sched(args: &[&str]) {
+    use crate::sched_core::Policy;
+    match args.first().copied() {
+        Some("policy") => match args.get(1).copied() {
+            Some("fifo") => { crate::agent::set_policy(Policy::Fifo); println!("  Agent scheduling: fifo"); }
+            Some("priority") | Some("prio") => { crate::agent::set_policy(Policy::Priority); println!("  Agent scheduling: priority"); }
+            _ => println!("  Usage: sched policy fifo|priority"),
+        },
+        Some("budget") => match args.get(1).and_then(|s| s.parse::<usize>().ok()) {
+            Some(b) => { crate::agent::set_budget(b); println!("  Per-tick action budget: {} (0 = unlimited)", b); }
+            None => println!("  Usage: sched budget <n>"),
+        },
+        Some("reset") => { crate::agent::reset_sched_stats(); println!("  Scheduler stats reset."); }
+        Some("stats") | None => {
+            let (p, b) = crate::agent::policy();
+            let (ticks, fired, deferred, maxw) = crate::agent::sched_stats();
+            println!("  policy={} budget={} ticks={} fired={} deferred={} max_wait_ticks={}",
+                p.name(), b, ticks, fired, deferred, maxw);
+            crate::sysinfo::with_uuid(|u| crate::serial_println!(
+                "SSTAT|1|{}|policy={};budget={};ticks={};fired={};deferred={};max_wait_ticks={}",
+                u, p.name(), b, ticks, fired, deferred, maxw));
+        }
+        Some(other) => println!("  Unknown sched sub-command '{}'. Try: policy budget stats reset", other),
+    }
+}
+
+// ── overhead benchmarks ───────────────────────────────────────────────────────
+
+fn cmd_bench(args: &[&str]) {
+    match args.first().copied() {
+        Some("prov") => {
+            let n = args.get(1).and_then(|s| s.parse::<usize>().ok()).unwrap_or(2000);
+            println!("  Benchmarking {} attributed writes (TSC, calibrated vs PIT)...", n);
+            crate::bench::prov_writes(n);
+        }
+        Some("cap") => {
+            let n = args.get(1).and_then(|s| s.parse::<usize>().ok()).unwrap_or(20000);
+            let c = args.get(2).and_then(|s| s.parse::<usize>().ok()).unwrap_or(16);
+            println!("  Benchmarking {} capability checks over {} capabilities...", n, c);
+            crate::bench::cap_checks(n, c);
+        }
+        _ => println!("  Usage: bench prov [n] | bench cap [n] [ncaps]"),
+    }
 }

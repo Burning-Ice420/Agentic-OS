@@ -111,6 +111,10 @@ pub struct Agent {
     /// Whether each rule's condition matched on the previous tick — used for
     /// edge-triggered firing (fire once on false→true, not every tick).
     pub prev_match:    Vec<bool>,
+    /// Scheduling priority (higher first under the `priority` policy).
+    pub priority:      i32,
+    /// Per rule: tick at which a fire was first deferred by the budget.
+    pub deferred_since: Vec<Option<u64>>,
 }
 
 impl Agent {
@@ -122,6 +126,8 @@ impl Agent {
             rules:         Vec::new(),
             trigger_count: 0,
             prev_match:    Vec::new(),
+            priority:      0,
+            deferred_since: Vec::new(),
         }
     }
 }
@@ -172,146 +178,236 @@ pub fn init() {
         action_value: "kernel_error".to_string(),
     });
     ag.prev_match.push(false);
+    ag.deferred_since.push(None);
     rt.agents.push(ag);
 }
 
-/// Evaluate all agents; fire each rule once on its false→true edge, apply the
-/// action blobs, and append to the audit log. Locks are never nested (RUNTIME
-/// and HIVE are taken in separate phases).
+/// Evaluate all agents in scheduler order; fire each rule once on its false→true
+/// edge (subject to the per-tick budget), check capabilities at the enforcement
+/// point, record provenance with parent links, apply actions, and append to the
+/// audit log. Lock order: RUNTIME and HIVE are never nested; HIVE -> PROV is ok.
 pub fn tick_all() {
-    let tick = crate::interrupts::current_tick();
+    use crate::cap_core::OP_READ;
+    use crate::hive::WriteResult;
+    use crate::prov::{self, Actor, Kind};
+    use core::fmt::Write;
 
-    // Phase 1 — snapshot each agent's rules + previous match state.
-    let snapshots: Vec<(usize, u64, String, Vec<Rule>, Vec<bool>)> = {
+    let tick = crate::interrupts::current_tick();
+    let (policy, budget) = {
+        let s = SCHED.lock();
+        (s.policy, s.budget)
+    };
+
+    struct Snap {
+        idx: usize,
+        agent_id: u64,
+        memory_id: u64,
+        name: String,
+        rules: Vec<Rule>,
+        prev: Vec<bool>,
+        prio: i32,
+    }
+
+    // Phase 1 — snapshot (RUNTIME lock only).
+    let snaps: Vec<Snap> = {
         let rt = RUNTIME.lock();
         rt.agents
             .iter()
             .enumerate()
-            .map(|(i, a)| (i, a.memory_id, a.name.clone(), a.rules.clone(), a.prev_match.clone()))
+            .map(|(i, a)| Snap {
+                idx: i,
+                agent_id: a.id,
+                memory_id: a.memory_id,
+                name: a.name.clone(),
+                rules: a.rules.clone(),
+                prev: a.prev_match.clone(),
+                prio: a.priority,
+            })
             .collect()
     };
+    let prios: Vec<i32> = snaps.iter().map(|s| s.prio).collect();
+    let order = crate::sched_core::order(policy, &prios);
 
     struct Fired {
-        idx:        usize,
-        cur:        Vec<bool>,             // this tick's match state per rule
-        actions:    Vec<(String, String)>, // rising-edge actions only
-        name:       String,
-        memory_id:  u64,
+        snap: usize,
+        cur: Vec<bool>,
+        rising: Vec<usize>,
     }
 
-    // Phase 2 — evaluate conditions (HIVE lock only).
-    let mut results: Vec<Fired> = Vec::new();
-    for (idx, memory_id, name, rules, prev) in snapshots {
+    // Phase 2 — evaluate conditions in scheduler order (HIVE lock only).
+    let mut fired: Vec<Fired> = Vec::new();
+    for &si in &order {
+        let s = &snaps[si];
         let cur: Vec<bool> = hive::with_hive(|h| {
-            rules
+            s.rules
                 .iter()
                 .map(|r| {
                     h.memories
-                        .get(&memory_id)
+                        .get(&s.memory_id)
                         .and_then(|m| m.blobs.get(&r.watch_key))
                         .map(|b| r.condition.matches(&b.value))
                         .unwrap_or(false)
                 })
                 .collect()
         });
-
-        let mut actions = Vec::new();
-        for (ri, r) in rules.iter().enumerate() {
-            let was = prev.get(ri).copied().unwrap_or(false);
-            if cur[ri] && !was {
-                actions.push((r.action_key.clone(), r.action_value.clone()));
-            }
-        }
-        results.push(Fired { idx, cur, actions, name, memory_id });
+        let rising: Vec<usize> = (0..s.rules.len())
+            .filter(|&ri| cur[ri] && !s.prev.get(ri).copied().unwrap_or(false))
+            .collect();
+        fired.push(Fired { snap: si, cur, rising });
     }
 
-    // Phase 3 — apply the fired actions to the hive, record the audit trail, and
-    // propagate each action to peer VMs over the COM2 mesh so the swarm shares
-    // memory: a reaction on one instance triggers reactions on the others.
+    // Scheduling hook — admit up to `budget` actions this tick, defer the rest.
+    let wanted: Vec<usize> = fired.iter().map(|f| f.rising.len()).collect();
+    let admitted = crate::sched_core::admit(&wanted, budget);
+
+    // Phase 3 — apply admitted actions (HIVE lock per agent). Side effects that
+    // need other locks (mesh send, model request) are collected and run after.
     let mut audit_events: Vec<AgentEvent> = Vec::new();
+    let mut sends: Vec<(String, String, String, u64, u64, u64)> = Vec::new(); // mem, key, val, mem_id, write_ev, agent
+    let mut offloads: Vec<(String, String, String, u64, u64)> = Vec::new(); // mem, task, ctx, offload_ev, agent
+    let mut applied_rules: Vec<(usize, Vec<usize>)> = Vec::new();
+    let mut deferred_rules: Vec<(usize, Vec<usize>)> = Vec::new();
+    let mut n_applied = 0u64;
+    let mut n_deferred = 0u64;
     let mut fired_any = false;
-    for r in &results {
-        if r.actions.is_empty() {
+
+    for (fi, f) in fired.iter().enumerate() {
+        if f.rising.is_empty() {
             continue;
         }
-        fired_any = true;
-        // Apply the plain writes, and gather the node name + its full state in one
-        // hive lock. An action value of "ai:<prompt>" is NOT a fixed write: it is a
-        // two-tier offload that hands the node's state to the model accelerator.
-        let (mem_name, ctx) = hive::with_hive(|h| {
-            for (key, val) in &r.actions {
-                if !val.starts_with("ai:") {
-                    h.write_blob(r.memory_id, key, BlobValue::parse(val));
-                }
-            }
-            let name = h.memories.get(&r.memory_id).map(|m| m.name.clone());
-            let ctx = h
-                .memories
-                .get(&r.memory_id)
-                .map(|m| {
-                    use core::fmt::Write;
-                    let mut c = String::new();
-                    for (k, b) in &m.blobs {
-                        if !c.is_empty() {
-                            c.push(',');
-                        }
-                        let _ = write!(c, "{}={}", k, b.value.display());
-                    }
-                    c
-                })
-                .unwrap_or_default();
-            (name, ctx)
-        });
-        for (key, val) in &r.actions {
-            if let Some(prompt) = val.strip_prefix("ai:") {
-                // The reflex rule fired but delegates the decision to the model.
-                // The LLMRSP is applied later by llm::poll_and_apply, which writes a
-                // blob the reflex tier can then react to — this closes the two-tier
-                // loop without a human typing `ai`.
-                let task = if prompt.is_empty() { "decide the next action" } else { prompt };
-                if let Some(name) = &mem_name {
-                    crate::llm::request(name, task, &ctx);
-                }
-                audit_events.push(AgentEvent {
-                    tick,
-                    agent: r.name.clone(),
-                    key:   "ai_offload".to_string(),
-                    value: task.to_string(),
-                });
-            } else {
-                audit_events.push(AgentEvent {
-                    tick,
-                    agent: r.name.clone(),
-                    key:   key.clone(),
-                    value: val.clone(),
-                });
-                if let Some(name) = &mem_name {
-                    crate::net::send_blob(name, key, val);
-                }
-            }
+        let s = &snaps[f.snap];
+        let k = admitted[fi];
+        let apply: Vec<usize> = f.rising[..k].to_vec();
+        let defer: Vec<usize> = f.rising[k..].to_vec();
+        n_deferred += defer.len() as u64;
+        deferred_rules.push((s.idx, defer));
+        if apply.is_empty() {
+            continue;
         }
+        let actor = Actor::Agent(s.agent_id);
+        let accel = crate::llm::present();
+        hive::with_hive(|h| {
+            let mem_name = h.memories.get(&s.memory_id).map(|m| m.name.clone()).unwrap_or_default();
+            for &ri in &apply {
+                let r = &s.rules[ri];
+                // The observation that made the rule fire is a read: check it.
+                if h.authorize(actor, OP_READ, s.memory_id, &mem_name, &r.watch_key, None).is_err() {
+                    continue;
+                }
+                let mut extra = String::new();
+                let _ = write!(extra, "rule={};cond={}", ri, r.condition.describe());
+                let read_ev = h.note_read(actor, s.memory_id, &r.watch_key, None, &extra);
+                let mut fa = String::new();
+                let _ = write!(fa, "rule={}", ri);
+                let fire_ev = prov::emit(Kind::AgentFire, actor, s.memory_id, &mem_name, &r.action_key, Some(read_ev), fa);
+                n_applied += 1;
+                fired_any = true;
+
+                if let Some(prompt) = r.action_value.strip_prefix("ai:") {
+                    // Two-tier offload: needs the "ai" tool capability, and the whole
+                    // node leaves the VM as context, so that read is recorded too.
+                    let tool_auth = match h.authorize_tool(actor, "ai", Some(fire_ev)) {
+                        Ok(a) => a,
+                        Err(_) => continue,
+                    };
+                    let ctx_ev = h.note_read(actor, s.memory_id, "*", Some(fire_ev), "purpose=offload_context");
+                    let mut ctx = String::new();
+                    if let Some(m) = h.memories.get(&s.memory_id) {
+                        for (bk, b) in &m.blobs {
+                            if !ctx.is_empty() {
+                                ctx.push(',');
+                            }
+                            let _ = write!(ctx, "{}={}", bk, b.value.display());
+                        }
+                    }
+                    let task = if prompt.is_empty() { "decide the next action" } else { prompt };
+                    let mut oa = String::new();
+                    let _ = write!(oa, "tool=ai;prompt_len={};ctx_len={}", task.len(), ctx.len());
+                    if let Some(a) = tool_auth {
+                        let _ = write!(oa, ";auth={}", a);
+                    }
+                    if !accel {
+                        oa.push_str(";device=absent");
+                    }
+                    let off_ev = prov::emit(Kind::Offload, actor, s.memory_id, &mem_name, "*", Some(ctx_ev), oa);
+                    offloads.push((mem_name.clone(), task.to_string(), ctx, off_ev, s.agent_id));
+                    audit_events.push(AgentEvent { tick, agent: s.name.clone(),
+                        key: "ai_offload".to_string(), value: task.to_string() });
+                } else {
+                    let val = r.action_value.clone();
+                    match h.write_blob_as(actor, s.memory_id, &r.action_key, BlobValue::parse(&val), Some(fire_ev)) {
+                        WriteResult::Written(wev) => {
+                            sends.push((mem_name.clone(), r.action_key.clone(), val.clone(), s.memory_id, wev, s.agent_id));
+                            audit_events.push(AgentEvent { tick, agent: s.name.clone(),
+                                key: r.action_key.clone(), value: val });
+                        }
+                        WriteResult::Denied(_) | WriteResult::NotFound => {}
+                    }
+                }
+            }
+        });
+        applied_rules.push((s.idx, apply));
     }
 
-    // Autonomous changes should persist too (the shell only flags command-driven
-    // mutations dirty; a timer-fired agent runs without a command).
+    // Side effects outside the hive lock.
+    for (mem, key, val, mem_id, wev, agent) in &sends {
+        crate::net::send_blob_tracked(mem, key, val, Actor::Agent(*agent), *mem_id, Some(*wev));
+    }
+    for (mem, task, ctx, off_ev, agent) in &offloads {
+        let _ = crate::llm::request_tracked(mem, task, ctx, *off_ev, Some(*agent));
+    }
     if fired_any {
         crate::disk::persist::mark_dirty();
     }
 
-    // Phase 4 — write back match state, trigger counts, and audit (RUNTIME lock only).
-    let mut rt = RUNTIME.lock();
-    for r in &results {
-        if let Some(ag) = rt.agents.get_mut(r.idx) {
-            ag.prev_match = r.cur.clone();
-            ag.trigger_count += r.actions.len() as u64;
+    // Phase 4 — write back match state (deferred rules re-arm so they fire next
+    // tick), deferral waits, counters and audit (RUNTIME lock only).
+    let mut max_wait = 0u64;
+    {
+        let mut rt = RUNTIME.lock();
+        for f in &fired {
+            let s = &snaps[f.snap];
+            if let Some(ag) = rt.agents.get_mut(s.idx) {
+                let mut cur = f.cur.clone();
+                if ag.deferred_since.len() < cur.len() {
+                    ag.deferred_since.resize(cur.len(), None);
+                }
+                for (ri, m) in cur.iter().enumerate() {
+                    if !*m {
+                        ag.deferred_since[ri] = None; // condition went away; nothing pending
+                    }
+                }
+                if let Some((_, d)) = deferred_rules.iter().find(|(i, _)| *i == s.idx) {
+                    for &ri in d {
+                        cur[ri] = false; // re-arm: still true next tick -> rising edge again
+                        if ag.deferred_since[ri].is_none() {
+                            ag.deferred_since[ri] = Some(tick);
+                        }
+                    }
+                }
+                if let Some((_, a)) = applied_rules.iter().find(|(i, _)| *i == s.idx) {
+                    for &ri in a {
+                        if let Some(since) = ag.deferred_since[ri].take() {
+                            max_wait = max_wait.max(tick.saturating_sub(since));
+                        }
+                    }
+                    ag.trigger_count += a.len() as u64;
+                }
+                ag.prev_match = cur;
+            }
+        }
+        for e in audit_events {
+            rt.audit.push(e);
+        }
+        while rt.audit.len() > AUDIT_CAP {
+            rt.audit.remove(0);
         }
     }
-    for e in audit_events {
-        rt.audit.push(e);
-    }
-    while rt.audit.len() > AUDIT_CAP {
-        rt.audit.remove(0);
-    }
+    let mut st = SCHED_STATS.lock();
+    st.ticks += 1;
+    st.fired += n_applied;
+    st.deferred += n_deferred;
+    st.max_wait_ticks = st.max_wait_ticks.max(max_wait);
 }
 
 /// Call `f` with the agent audit log (most recent last).
@@ -325,10 +421,19 @@ where
 
 /// Create a new agent watching `memory_id`. Returns the new agent's ID.
 pub fn create_agent(name: &str, memory_id: u64) -> u64 {
-    let mut rt = RUNTIME.lock();
-    let id     = rt.next_id;
-    rt.next_id += 1;
-    rt.agents.push(Agent::new(id, name, memory_id));
+    let id = {
+        let mut rt = RUNTIME.lock();
+        let id = rt.next_id;
+        rt.next_id += 1;
+        rt.agents.push(Agent::new(id, name, memory_id));
+        id
+    };
+    let mut a = String::new();
+    {
+        use core::fmt::Write;
+        let _ = write!(a, "agent_id={};name={}", id, crate::prov_core::sanitize(name));
+    }
+    crate::prov::emit(crate::prov::Kind::AgentSpawn, crate::prov::Actor::Shell, memory_id, "-", "-", None, a);
     id
 }
 
@@ -349,9 +454,48 @@ pub fn add_rule(
             action_value: action_val.to_string(),
         });
         ag.prev_match.push(false);
+        ag.deferred_since.push(None);
+        let mid = ag.memory_id;
+        drop(rt);
+        let mut a = String::new();
+        {
+            use core::fmt::Write;
+            let _ = write!(a, "agent_id={};action={}", agent_id, crate::prov_core::sanitize(action_val));
+        }
+        crate::prov::emit(crate::prov::Kind::AgentRule, crate::prov::Actor::Shell, mid, "-", watch_key, None, a);
         true
     } else {
         false
+    }
+}
+
+// ── Scheduling hook ───────────────────────────────────────────────────────────
+
+static SCHED: Mutex<crate::sched_core::SchedConfig> = Mutex::new(crate::sched_core::SchedConfig::new());
+static SCHED_STATS: Mutex<crate::sched_core::SchedStats> = Mutex::new(crate::sched_core::SchedStats {
+    ticks: 0, fired: 0, deferred: 0, max_wait_ticks: 0,
+});
+
+pub fn set_policy(p: crate::sched_core::Policy) { SCHED.lock().policy = p; }
+pub fn set_budget(b: usize) { SCHED.lock().budget = b; }
+pub fn policy() -> (crate::sched_core::Policy, usize) { let s = SCHED.lock(); (s.policy, s.budget) }
+
+/// (ticks, fired, deferred, max_wait_ticks)
+pub fn sched_stats() -> (u64, u64, u64, u64) {
+    let s = SCHED_STATS.lock();
+    (s.ticks, s.fired, s.deferred, s.max_wait_ticks)
+}
+
+pub fn reset_sched_stats() {
+    let mut s = SCHED_STATS.lock();
+    s.ticks = 0; s.fired = 0; s.deferred = 0; s.max_wait_ticks = 0;
+}
+
+pub fn set_priority(agent_id: u64, prio: i32) -> bool {
+    let mut rt = RUNTIME.lock();
+    match rt.agents.iter_mut().find(|a| a.id == agent_id) {
+        Some(a) => { a.priority = prio; true }
+        None => false,
     }
 }
 

@@ -1,0 +1,8 @@
+[package]
+name = "hivemind-os-logic"
+version = "0.1.0"
+edition = "2021"
+description = "Host-side unit tests for the pure (core+alloc) logic of the bare-metal hivemind-os kernel. The modules are compiled from the kernel's own source files via #[path]."
+publish = false
+
+[dependencies]

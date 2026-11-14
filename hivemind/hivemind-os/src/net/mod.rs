@@ -205,15 +205,31 @@ pub fn poll_and_apply() {
     for msg in msgs {
         let val = BlobValue::parse(&msg.value);
         hive::with_hive(|h| {
-            // Reuse an existing memory node if names match, otherwise create one.
-            let id = h.memories
-                .iter()
-                .find(|(_, n)| n.name == msg.memory_name)
-                .map(|(&id, _)| id)
-                .unwrap_or_else(|| h.create_memory(&msg.memory_name, None));
-            h.write_blob(id, &msg.key, val);
+            use crate::prov::Actor;
+            // The wire carries no sender identity, so the writer is `peer` and the
+            // parent is unknown on this side (the collector may infer a link from
+            // the sender's `mesh_send` event, labelled as inferred).
+            let existing = h.find_by_name(&msg.memory_name);
+            if existing.is_none() {
+                // Gate creation too: a peer without write access must not be able
+                // to plant new nodes either.
+                if h.authorize(Actor::Peer, crate::cap_core::OP_WRITE, 0, &msg.memory_name, &msg.key, None).is_err() {
+                    return;
+                }
+            }
+            let id = existing.unwrap_or_else(|| h.create_memory_as(Actor::Peer, &msg.memory_name, None));
+            let _ = h.write_blob_as(Actor::Peer, id, &msg.key, val, None);
         });
     }
+}
+
+/// Broadcast a blob update and record it as a `mesh_send` provenance event whose
+/// parent is the local write that produced it.
+pub fn send_blob_tracked(memory_name: &str, key: &str, value: &str,
+                         actor: crate::prov::Actor, mem_id: u64, parent: Option<u64>) {
+    crate::prov::emit(crate::prov::Kind::MeshSend, actor, mem_id, memory_name, key, parent,
+                      crate::prov::value_attrs(value));
+    send_blob(memory_name, key, value);
 }
 
 /// Return (tx_count, rx_count).

@@ -111,7 +111,21 @@ pub fn load() -> Result<(), &'static str> {
     // Strip trailing nulls
     let hive_data = trim_nulls(&hive_buf);
     if !hive_data.is_empty() {
-        hive::with_hive(|h| deserialize_hive(h, hive_data));
+        // Restoring is one logical act: record a single summary event instead of
+        // one write per blob (per-blob lineage before the reboot is not known).
+        let was_on = crate::prov::enabled();
+        crate::prov::set_enabled(false);
+        let (nodes, blobs) = hive::with_hive(|h| {
+            deserialize_hive(h, hive_data);
+            (h.memories.len(), h.total_blobs())
+        });
+        crate::prov::set_enabled(was_on);
+        let mut a = String::new();
+        {
+            use core::fmt::Write as _;
+            let _ = write!(a, "nodes={};blobs={};prior_lineage=unknown", nodes, blobs);
+        }
+        crate::prov::emit_plain(crate::prov::Kind::RestoreSummary, crate::prov::Actor::Restore, "-", None, a);
     }
 
     // ── Load VFS ──────────────────────────────────────────────────────────────
@@ -158,6 +172,12 @@ fn serialize_hive(h: &mut hive::Hive) -> Vec<u8> {
     for edge in &h.edges {
         let _ = write!(out, "EDGE|{}|{}|{}\n",
             edge.from_id, edge.to_id, edge.edge_type.name());
+    }
+    // Only the enforcement flag persists (fail-closed). Capabilities themselves
+    // are runtime-only: agent ids are re-issued every boot, so a saved grant to
+    // "agent 2" could silently pass to a different agent after a reboot.
+    if h.caps.enforce {
+        out.push_str("ENFORCE|1\n");
     }
 
     out.into_bytes()
@@ -224,6 +244,12 @@ fn deserialize_hive(h: &mut hive::Hive, data: &[u8]) {
                         _            => EdgeType::Sync,
                     };
                     h.edges.push(crate::hive::MemoryEdge { from_id: from, to_id: to, edge_type: etype });
+                }
+                // Fail-closed: a saved ENFORCE turns enforcement on, never off.
+                "ENFORCE" if parts.len() >= 2 && parts[1] == "1" => {
+                    if !h.caps.enforce {
+                        h.caps.set_enforce(true);
+                    }
                 }
                 _ => {}
             }

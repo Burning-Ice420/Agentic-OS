@@ -369,8 +369,8 @@ impl DesktopApp {
                     let id = h.memories.iter()
                         .find(|(_, node)| node.name == parts[2])
                         .map(|(&id, _)| id)
-                        .unwrap_or_else(|| h.create_memory(parts[2], None));
-                    h.write_blob(id, parts[3], BlobValue::Text(text));
+                        .unwrap_or_else(|| h.create_memory_as(crate::prov::Actor::Desktop, parts[2], None));
+                    let _ = h.write_blob_as(crate::prov::Actor::Desktop, id, parts[3], BlobValue::Text(text), None);
                 });
                 crate::disk::persist::mark_dirty();
                 self.add_log("note saved into hive memory");
@@ -418,8 +418,8 @@ impl DesktopApp {
                 .iter()
                 .find(|(_, n)| n.name == "notepad")
                 .map(|(&id, _)| id)
-                .unwrap_or_else(|| h.create_memory("notepad", None));
-            h.write_blob(id, "content", BlobValue::Text(text));
+                .unwrap_or_else(|| h.create_memory_as(crate::prov::Actor::Desktop, "notepad", None));
+            let _ = h.write_blob_as(crate::prov::Actor::Desktop, id, "content", BlobValue::Text(text), None);
         });
         crate::disk::persist::mark_dirty();
         self.add_log(&format!("Saved {} bytes to hive memory 'notepad'", bytes));

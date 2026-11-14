@@ -13,6 +13,7 @@
 //! The returned action is applied to the hive, where the reflex tier can react
 //! to it — so deliberation feeds reflex.
 
+use alloc::collections::VecDeque;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::fmt::Write as FmtWrite;
@@ -28,6 +29,7 @@ struct Uart {
     lcr:  Port<u8>,
     mcr:  Port<u8>,
     lsr:  Port<u8>,
+    scr:  Port<u8>,
 }
 
 impl Uart {
@@ -39,6 +41,20 @@ impl Uart {
             lcr:  Port::new(base + 3),
             mcr:  Port::new(base + 4),
             lsr:  Port::new(base + 5),
+            scr:  Port::new(base + 7),
+        }
+    }
+
+    /// Scratch-register probe: a 16550 keeps what is written to base+7; an absent
+    /// port reads back 0xFF (or garbage). Without this, writing to a missing device
+    /// spins on the line-status register with interrupts off.
+    fn probe(&mut self) -> bool {
+        unsafe {
+            self.scr.write(0x5Au8);
+            let a = self.scr.read();
+            self.scr.write(0xA5u8);
+            let b = self.scr.read();
+            a == 0x5A && b == 0xA5
         }
     }
 
@@ -70,11 +86,15 @@ impl Uart {
         if self.data_ready() { Some(unsafe { self.data.read() }) } else { None }
     }
 
-    fn write_byte(&mut self, b: u8) {
+    /// false if the transmitter never became ready (device stopped responding).
+    fn write_byte(&mut self, b: u8) -> bool {
         for _ in 0..200_000u32 {
-            if self.tx_empty() { break; }
+            if self.tx_empty() {
+                unsafe { self.data.write(b); }
+                return true;
+            }
         }
-        unsafe { self.data.write(b); }
+        false
     }
 }
 
@@ -114,6 +134,12 @@ struct LlmState {
     accum: LineAccum,
     tx:    u64,
     rx:    u64,
+    /// Outstanding requests in send order: (memory, offload event id, agent).
+    /// The bridge answers in order, so a response is matched to the oldest
+    /// pending request for the same memory (documented as a FIFO inference).
+    pending: VecDeque<(String, u64, Option<u64>)>,
+    /// A UART answered the probe at init and has not timed out since.
+    present: bool,
 }
 
 // SAFETY: plain data + port wrappers, serialized by the Mutex.
@@ -124,28 +150,61 @@ static LLM: Mutex<LlmState> = Mutex::new(LlmState {
     accum: LineAccum::new(),
     tx:    0,
     rx:    0,
+    pending: VecDeque::new(),
+    present: false,
 });
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
 pub fn init() {
     use x86_64::instructions::interrupts;
-    interrupts::without_interrupts(|| LLM.lock().uart.init());
+    interrupts::without_interrupts(|| {
+        let mut m = LLM.lock();
+        m.present = m.uart.probe();
+        if m.present {
+            m.uart.init();
+        }
+    });
+}
+
+/// Is a model accelerator attached on COM3?
+pub fn present() -> bool {
+    use x86_64::instructions::interrupts;
+    interrupts::without_interrupts(|| LLM.lock().present)
 }
 
 /// Offload a reasoning request to the AI accelerator. Non-blocking; the response
 /// is applied later by `poll_and_apply`.
-pub fn request(memory: &str, prompt: &str, context: &str) {
+pub fn request(memory: &str, prompt: &str, context: &str) -> bool {
+    request_tracked(memory, prompt, context, 0, None)
+}
+
+/// Offload with provenance: `offload_event` becomes the parent of the write that
+/// applies the answer, and `agent` is who the model is acting for (None = shell).
+/// Returns false (and sends nothing) when no accelerator is attached.
+pub fn request_tracked(memory: &str, prompt: &str, context: &str, offload_event: u64, agent: Option<u64>) -> bool {
     use x86_64::instructions::interrupts;
     interrupts::without_interrupts(|| {
         let mut m = LLM.lock();
+        if !m.present {
+            return false;
+        }
+        if m.pending.len() >= 32 {
+            m.pending.pop_front(); // bound memory; an unanswered request loses its link
+        }
+        m.pending.push_back((memory.to_string(), offload_event, agent));
         let mut line = String::new();
         let _ = write!(line, "LLMREQ|{}|{}|{}\n", memory, prompt, context);
         for b in line.bytes() {
-            m.uart.write_byte(b);
+            if !m.uart.write_byte(b) {
+                m.present = false; // stop paying the timeout on every byte
+                m.pending.pop_back();
+                return false;
+            }
         }
         m.tx += 1;
-    });
+        true
+    })
 }
 
 /// Poll the accelerator for completed `LLMRSP` actions and apply them to the
@@ -180,18 +239,31 @@ pub fn poll_and_apply() -> usize {
     }
 
     // Apply outside the LLM lock so we can lock HIVE safely.
+    use crate::hive::WriteResult;
+    use crate::prov::Actor;
     for (memory, key, value) in &responses {
         let val = BlobValue::parse(value);
-        hive::with_hive(|h| {
-            let id = h
-                .memories
-                .iter()
-                .find(|(_, n)| &n.name == memory)
-                .map(|(&id, _)| id)
-                .unwrap_or_else(|| h.create_memory(memory, None));
-            h.write_blob(id, key, val);
+        let (parent, agent) = interrupts::without_interrupts(|| {
+            let mut m = LLM.lock();
+            match m.pending.iter().position(|(mem, _, _)| mem == memory) {
+                Some(i) => {
+                    let (_, ev, ag) = m.pending.remove(i).unwrap();
+                    (if ev == 0 { None } else { Some(ev) }, ag)
+                }
+                None => (None, None),
+            }
         });
-        crate::println!("  [AI] {} <- {} = {}", memory, key, value);
+        // The model acts on behalf of the agent that asked, so it is checked with
+        // that agent's capabilities (no confused deputy via the model).
+        let actor = Actor::Model(agent);
+        let res = hive::with_hive(|h| {
+            let id = h.find_by_name(memory).unwrap_or_else(|| h.create_memory_as(actor, memory, None));
+            h.write_blob_as(actor, id, key, val, parent)
+        });
+        match res {
+            WriteResult::Denied(ev) => crate::println!("  [AI] {} <- {} DENIED by policy (event {})", memory, key, ev),
+            _ => crate::println!("  [AI] {} <- {} = {}", memory, key, value),
+        }
     }
     crate::disk::persist::mark_dirty();
     responses.len()

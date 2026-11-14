@@ -4,6 +4,7 @@ members = [
     "hivemind-kernel",
     "hivemind-vos",
     "hivemind-observer",
+    "hivemind-os-logic",
 ]
 
 [workspace.dependencies]

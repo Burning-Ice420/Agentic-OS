@@ -41,7 +41,10 @@ SYSTEM_PROMPT = (
 )
 
 
-def call_ollama(host, model, memory, prompt, context):
+DEFAULT_OPTIONS = {"temperature": 0.1, "num_predict": 24}
+
+
+def call_ollama(host, model, memory, prompt, context, options=None, system=None):
     """Return (key, value) from the local model, or None on failure.
 
     Uses the /api/chat endpoint (instruct models follow it far better than a stuffed
@@ -51,9 +54,9 @@ def call_ollama(host, model, memory, prompt, context):
     body = {
         "model": model,
         "stream": False,
-        "options": {"temperature": 0.1, "num_predict": 24},
+        "options": dict(DEFAULT_OPTIONS, **(options or {})),
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system or SYSTEM_PROMPT},
             {"role": "user", "content": f"state: {context or '(empty)'}\ntask: {prompt}"},
         ],
     }

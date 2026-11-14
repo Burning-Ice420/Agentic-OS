@@ -8,7 +8,11 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use spin::Mutex;
 
 use blob::BlobValue;
+use core::fmt::Write;
 use memory_node::MemoryNode;
+
+use crate::cap_core::{ops_string, CapTable, Decision, Subject, OP_INVOKE, OP_READ, OP_WRITE};
+use crate::prov::{self, value_attrs, Actor, Kind};
 
 // ── Global ID counter ─────────────────────────────────────────────────────────
 
@@ -73,6 +77,38 @@ pub struct Hive {
     pub memories:   BTreeMap<u64, MemoryNode>,
     pub edges:      Vec<MemoryEdge>,
     pub signal_log: Vec<Signal>,
+    /// Capability table, enforced at the write/read/invoke boundary below.
+    pub caps:       CapTable,
+}
+
+/// Outcome of an attributed write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WriteResult {
+    /// Written; carries the provenance event id.
+    Written(u64),
+    /// Refused by capability policy; carries the `cap_deny` event id.
+    Denied(u64),
+    NotFound,
+}
+
+/// Map a principal to the capability subject it is checked as. Trusted
+/// principals (kernel, shell, desktop, restore, shell-initiated model calls)
+/// return None and are not checked.
+pub fn subject_of(actor: Actor) -> Option<Subject> {
+    match actor {
+        Actor::Agent(id) | Actor::Model(Some(id)) => Some(Subject::Agent(id)),
+        Actor::Peer => Some(Subject::Peer),
+        _ => None,
+    }
+}
+
+fn op_char(op: u8) -> &'static str {
+    match op {
+        OP_READ => "r",
+        OP_WRITE => "w",
+        OP_INVOKE => "i",
+        _ => "?",
+    }
 }
 
 impl Hive {
@@ -81,11 +117,121 @@ impl Hive {
             memories:   BTreeMap::new(),
             edges:      Vec::new(),
             signal_log: Vec::new(),
+            caps:       CapTable::new(),
         }
     }
 
-    /// Create a new MemoryNode, optionally as a child of `parent_id`.
+    // ── Enforcement point ────────────────────────────────────────────────────
+
+    /// Record a policy decision as a provenance event and in the explain log.
+    fn record(&self, actor: Actor, op: u8, mem_id: u64, target: &str, key: &str,
+              parent: Option<u64>, d: Decision) -> Result<Option<u64>, u64> {
+        let mut who = String::new();
+        actor.tag(&mut who);
+        match d {
+            Decision::NotEnforced => Ok(None),
+            Decision::Allow { cap, policy_version } => {
+                let mut a = String::new();
+                let _ = write!(a, "op={};cap={};pv={}", op_char(op), cap, policy_version);
+                let ev = prov::emit(Kind::CapAllow, actor, mem_id, target, key, parent, a);
+                let mut t = String::new();
+                let rule = self.caps.caps.iter().find(|c| c.id == cap);
+                let _ = write!(t, "event {}: {} requested '{}' on {} -> ALLOW, matched capability #{}",
+                    ev, who, op_char(op), target, cap);
+                if let Some(c) = rule {
+                    let _ = write!(t, " (resource {:?}, ops {}, issuer {:?})", c.resource, ops_string(c.ops), c.issuer);
+                }
+                let _ = write!(t, ", policy v{}", policy_version);
+                prov::record_decision(ev, t);
+                Ok(Some(ev))
+            }
+            Decision::Deny { reason, policy_version } => {
+                let mut a = String::new();
+                let _ = write!(a, "op={};reason={};pv={}", op_char(op), reason.name(), policy_version);
+                let ev = prov::emit(Kind::CapDeny, actor, mem_id, target, key, parent, a);
+                let mut t = String::new();
+                let _ = write!(t, "event {}: {} requested '{}' on {} -> DENY ({}), policy v{}",
+                    ev, who, op_char(op), target, reason.name(), policy_version);
+                prov::record_decision(ev, t);
+                Err(ev)
+            }
+        }
+    }
+
+    /// Check `actor` may perform `op` on a memory node. Ok(Some(allow_event)),
+    /// Ok(None) when trusted or not enforced, Err(deny_event) when refused.
+    pub fn authorize(&self, actor: Actor, op: u8, mem_id: u64, mem_name: &str, key: &str,
+                     parent: Option<u64>) -> Result<Option<u64>, u64> {
+        let subj = match subject_of(actor) { Some(s) => s, None => return Ok(None) };
+        let d = self.caps.check_node(subj, op, mem_id, mem_name, crate::interrupts::current_tick());
+        self.record(actor, op, mem_id, mem_name, key, parent, d)
+    }
+
+    /// Check `actor` may invoke a tool (e.g. "ai").
+    pub fn authorize_tool(&self, actor: Actor, tool: &str, parent: Option<u64>) -> Result<Option<u64>, u64> {
+        let subj = match subject_of(actor) { Some(s) => s, None => return Ok(None) };
+        let d = self.caps.check_tool(subj, tool, crate::interrupts::current_tick());
+        let mut target = String::from("tool:");
+        target.push_str(tool);
+        self.record(actor, OP_INVOKE, 0, &target, "-", parent, d)
+    }
+
+    /// Attributed, authorized blob write. Every graph write should go through here.
+    pub fn write_blob_as(&mut self, actor: Actor, memory_id: u64, key: &str, value: BlobValue,
+                         parent: Option<u64>) -> WriteResult {
+        let name = match self.memories.get(&memory_id) {
+            Some(m) => m.name.clone(),
+            None => return WriteResult::NotFound,
+        };
+        let auth = match self.authorize(actor, OP_WRITE, memory_id, &name, key, parent) {
+            Ok(a) => a,
+            Err(ev) => return WriteResult::Denied(ev),
+        };
+        let mut a = value_attrs(&value.display());
+        if let Some(av) = auth {
+            let _ = write!(a, ";auth={}", av);
+        }
+        if let Some(mem) = self.memories.get_mut(&memory_id) {
+            mem.write_blob(key, value);
+        }
+        WriteResult::Written(prov::emit(Kind::Write, actor, memory_id, &name, key, parent, a))
+    }
+
+    /// Record that `actor` observed `key` of a node (`*` = the whole node).
+    pub fn note_read(&self, actor: Actor, memory_id: u64, key: &str, parent: Option<u64>, extra: &str) -> u64 {
+        let (name, val) = match self.memories.get(&memory_id) {
+            Some(m) => (m.name.clone(), m.blobs.get(key).map(|b| b.value.display())),
+            None => (String::from("?"), None),
+        };
+        let mut a = match val {
+            Some(v) => value_attrs(&v),
+            None => String::from("len=0"),
+        };
+        if !extra.is_empty() {
+            a.push(';');
+            a.push_str(extra);
+        }
+        prov::emit(Kind::Read, actor, memory_id, &name, key, parent, a)
+    }
+
+    /// Find a node by name.
+    pub fn find_by_name(&self, name: &str) -> Option<u64> {
+        self.memories.iter().find(|(_, n)| n.name == name).map(|(&id, _)| id)
+    }
+
+    /// Attributed node creation.
+    pub fn create_memory_as(&mut self, actor: Actor, name: &str, parent_id: Option<u64>) -> u64 {
+        let id = self.create_memory_inner(name, parent_id);
+        prov::emit(Kind::Create, actor, id, name, "-", None, String::new());
+        id
+    }
+
+    /// Create a new MemoryNode (attributed to the kernel), optionally as a child of `parent_id`.
     pub fn create_memory(&mut self, name: &str, parent_id: Option<u64>) -> u64 {
+        self.create_memory_as(Actor::Kernel, name, parent_id)
+    }
+
+    fn create_memory_inner(&mut self, name: &str, parent_id: Option<u64>) -> u64 {
         let id   = next_id();
         let mut node = MemoryNode::new(id, name);
         if let Some(pid) = parent_id {
@@ -104,14 +250,10 @@ impl Hive {
         id
     }
 
-    /// Write a blob into a memory node. Returns false if the node doesn't exist.
+    /// Write a blob attributed to the kernel. Kept for backward compatibility;
+    /// prefer `write_blob_as` so the writer is recorded.
     pub fn write_blob(&mut self, memory_id: u64, key: &str, value: BlobValue) -> bool {
-        if let Some(mem) = self.memories.get_mut(&memory_id) {
-            mem.write_blob(key, value);
-            true
-        } else {
-            false
-        }
+        matches!(self.write_blob_as(Actor::Kernel, memory_id, key, value, None), WriteResult::Written(_))
     }
 
     /// Read a blob from a memory node.
