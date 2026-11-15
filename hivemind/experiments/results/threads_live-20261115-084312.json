@@ -1,0 +1,117 @@
+{
+  "experiment": "threads_live",
+  "environment": {
+    "git_commit": "43814f950488028c9ce755cbd1000dd46e8d9128",
+    "git_dirty": true,
+    "os": "Windows-11-10.0.26300-SP0",
+    "cpu": "13th Gen Intel(R) Core(TM) i5-13420H",
+    "ram_gb": "15.6",
+    "python": "3.14.5",
+    "qemu": "QEMU emulator version 10.2.2",
+    "rustc_nightly": "<unavailable: FileNotFoundError>",
+    "ollama": "ollama version is 0.40.16",
+    "utc": "2026-11-15T03:13:16+00:00"
+  },
+  "config": {
+    "model": "llama3.2:3b"
+  },
+  "seed": null,
+  "repetitions": 1,
+  "warmup": "none",
+  "failed_runs": [],
+  "metrics": {
+    "checks": {
+      "label": "measured",
+      "value": {
+        "task_routed_by_keyword": true,
+        "task_routed_by_tag": true,
+        "private_note_routed_to_health": true,
+        "private_note_tagging_refused": true,
+        "unmatched_note_routed_by_model_and_validated": true,
+        "work_note_routed": true,
+        "ask_kept_private_note_back": true,
+        "secret_never_sent_to_model": true,
+        "peer_relabel_ignored": true,
+        "focus_held_home_reminder": true,
+        "focus_let_work_reminder_through": true,
+        "peer_cannot_edit_threads": true,
+        "digest_lists_held_reminder": true,
+        "why_explains_routing": true,
+        "threads_survived_reboot": true,
+        "private_after_reboot": true,
+        "desktop_shows_threads": true,
+        "no_event_loss": true
+      }
+    },
+    "requests": {
+      "label": "measured",
+      "value": [
+        [
+          "notes",
+          "@key:n2_thread Which one of these areas does this item belong to: health, home, work. Answer with exactly one of those words.",
+          "n2=water the plants on sunday"
+        ],
+        [
+          "notes",
+          "@key:n2_tags Give two or three one-word topic tags for this note, separated by spaces.",
+          "n2=water the plants on sunday"
+        ],
+        [
+          "notes",
+          "@key:n3_tags Give two or three one-word topic tags for this note, separated by spaces.",
+          "n3=team meeting moved to thursday"
+        ],
+        [
+          "notes",
+          "@key:answer Using only these notes, answer briefly: what is happening this week",
+          "n2=water the plants on sunday,n3=team meeting moved to thursday"
+        ],
+        [
+          "notes",
+          "@key:answer Using only these notes, answer briefly: what is happening this week",
+          "n2=water the plants on sunday,n3=team meeting moved to thursday"
+        ],
+        [
+          "notes",
+          "@key:answer Using only these notes, answer briefly: when do i refill meds",
+          "n2=water the plants on sunday,n3=team meeting moved to thursday"
+        ]
+      ]
+    },
+    "n2_routing": {
+      "label": "measured",
+      "value": [
+        {
+          "route": "1",
+          "thread": "inbox",
+          "reason": "default",
+          "why": "no_rule"
+        },
+        {
+          "route": "1",
+          "thread": "home",
+          "reason": "model"
+        }
+      ]
+    },
+    "screens": {
+      "label": "measured",
+      "value": {
+        "1_tasks_routed": "\n\n\n\n\n\n\n\n\n\n\n\n\n\nhive> task add +1 call acme about the invoice\n  Added t1 at 08:31: call acme about the invoice\n  t1 -> work (by keyword 'acme')\nhive> task a\n (!) Reminder: call acme about the invoice  (due 08:31)\nhive> task add +1 buy milk #home\n  Added t2 at 08:32: buy milk #home\n  t2 -> home (by #home)\nhive> focus work\n  focus: work. Reminders from other threads are held until then.\nhive>",
+        "1_notes_routed": "\n\n\n\n\n\nhive> note refill meds on friday\n  Saved n1.\n  n1 -> health (by keyword 'meds')\n  tagging: kept private: item is in a private thread, nothing sent (event #25)\nhive> note water the plants on sunday\n  Saved n2.\n  n2 -> inbox for now; no rule matched, routing sent to model (event #30, 1 item\n(s))\n  tagging: sent to model (event #32, 1 item(s))\nhive>   [AI] notes <- n2_thread = home\n\n (!) n2 filed under 'home' (model's choice, checked by the kernel)\nhive>   [AI] notes <- n2_tags = gardening plants water\nnote team meeting moved to thursday\n  Saved n3.\n  n3 -> work (by keyword 'meeting')\n  tagging: sent to model (event #41, 1 item(s))\nhive>   [AI] notes <- n3_tags = team meeting thursday\n",
+        "1_ask": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nhive> ask what is happening this week\n  sent to model (event #45, 2 item(s)), 1 private item(s) kept back\n  The answer appears here when the model replies; then: why notes answer\nhive>   [AI] notes <- answer = The team meeting has been rescheduled to Thursday\n, but there's no mention of the plants' care.\n\n (!) Answer: The team meeting has been rescheduled to Thursday, but there's no m\nention of the plants' care.\nhive>",
+        "1_after_peer": "\n\n\n\n\n\n\n\n\nhive> ask what is happening this week\n  sent to model (event #51, 2 item(s)), 1 private item(s) kept back\n  The answer appears here when the model replies; then: why notes answer\nhive>   [AI] notes <- answer = The team meeting has been rescheduled to Thursday\n, but there's no mention of any other events.\n\n (!) Answer: The team meeting has been rescheduled to Thursday, but there's no m\nention of any other events.\nhive> thread\n  health        0 open,  1 notes  PRIVATE  keys: doctor meds gym\n  home          1 open,  1 notes           keys: milk rent laundry groceries\n  work          1 open,  1 notes           keys: meeting email acme standup\n  inbox         0 open,  0 notes  (nothing matched)\n  focus: work; held reminders: 1\n  model routing: on (only when no rule matches)\nhive>",
+        "1_reminders": "\n\n\n\n\n\n\n\n\nhive> ask what is happening this week\n  sent to model (event #51, 2 item(s)), 1 private item(s) kept back\n  The answer appears here when the model replies; then: why notes answer\nhive>   [AI] notes <- answer = The team meeting has been rescheduled to Thursday\n, but there's no mention of any other events.\n\n (!) Answer: The team meeting has been rescheduled to Thursday, but there's no m\nention of any other events.\nhive> thread\n  health        0 open,  1 notes  PRIVATE  keys: doctor meds gym\n  home          1 open,  1 notes           keys: milk rent laundry groceries\n  work          1 open,  1 notes           keys: meeting email acme standup\n  inbox         0 open,  0 notes  (nothing matched)\n  focus: work; held reminders: 1\n  model routing: on (only when no rule matches)\nhive>",
+        "1_focus_held": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nhive> focus\n  focus: work\n  held reminders: t2\nhive>",
+        "1_digest": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nhive> focus off\nhive>\n (!) Focus on 'work' ended. 1 held: t2 buy milk #home (home)\nhive>",
+        "1_why_t1": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nhive> why tasks t1_thread\n  why tasks/t1_thread (trusted origin)\n  #12 write kernel tasks/t1_thread\n   <- caused by #11 marker kernel tasks/t1 -> work (keyword: acme)\n    <- caused by #10 write shell tasks/t1\n  origin: shell\nhive>",
+        "1_why_n2": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nhive> why notes n2_thread\n  why notes/n2_thread (trusted origin)\n  #35 write kernel notes/n2_thread\n   <- caused by #34 marker kernel notes/n2 -> home (model)\n    <- caused by #33 write model:shell notes/n2_thread\n     <- caused by #30 offload shell notes/*\n      <- caused by #29 read shell notes/*\n          shown to model: #26 write shell notes/n2\n  origin: shell\nhive>",
+        "2_threads": "  [hive] write status\n  [hive] store global\n  [hive] done\n[OK] HiveMind memory kernel initialized\n[OK] Mesh serial (COM2) ready     peer VMs will auto-sync blobs\n[OK] AI accelerator (COM3) ready     offloads reasoning to a host model\n[OK] Agent runtime initialized\n[OK] VFS initialized (/, /boot, /hive, /user)\n[OK] Data disk detected     previous state auto-restored\n[OK] PS/2 mouse initialized\n[OK] Instance UUID: fbbc6232-4dc5-43b8-8d87-5c3aae13d720\n\n  Type 'help' to see shell commands.  'ui' opens the desktop.\n  PageUp/PageDown scroll the console history.\n  Run 'run-os.ps1 -VMCount 2' on Windows to start a peer VM.\n\n[OK] Interrupts enabled     keyboard & mouse live\nhive> thread\n  health        0 open,  1 notes  PRIVATE  keys: doctor meds gym\n  home          1 open,  1 notes           keys: milk rent laundry groceries\n  work          1 open,  1 notes           keys: meeting email acme standup\n  inbox         0 open,  0 notes  (nothing matched)\n  no focus (all reminders interrupt)\n  model routing: on (only when no rule matches)\nhive>",
+        "2_notes": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nhive> note list\n  n1   health   refill meds on friday\n  n2   home     water the plants on sunday\n       tags: gardening plants water\n  n3   work     team meeting moved to thursday\n       tags: team meeting thursday\n  last answer: The team meeting has been rescheduled to Thursday, but there's no\n mention of any other events.\nhive>",
+        "2_ask": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nhive> ask when do i refill meds\n  sent to model (event #7, 2 item(s)), 1 private item(s) kept back\n  The answer appears here when the model replies; then: why notes answer\nhive>",
+        "3_desktop_tasks": " HiveMind OS  Desktop   id:fbbc6232                                   08:42:43\n\n   Terminal\n                  Tasks                                                  [X]\n    Notepad       Add: +5 stretch #home  |  18:30 call acme   then: done t\n                  [!] t1   08:31         work    call acme about the invoi\n     Hive         [!] t2   08:32         home    buy milk #home\n\n     Files\n\n     Mesh\n\n     Help\n\n     Tasks\n\n     Notes\n\n   Activity       task> _\n\n\n\n\n\n [Help] [Tasks]                                                     Esc:shell"
+      }
+    }
+  },
+  "notes": "fixtures: services/tests/fixtures/live_threads_boot1.log, live_threads_boot2.log"
+}

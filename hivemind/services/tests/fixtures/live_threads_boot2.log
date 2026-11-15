@@ -1,0 +1,21 @@
+[serial] HiveMind OS v0.1 — boot started
+[boot] heap initialized
+[boot] heap allocation probe passed: 66
+[boot] starting hive init
+[hive] new
+[hive] create root
+[hive] write version
+[hive] write status
+[hive] store global
+[hive] done
+[boot] hive init complete
+[boot] instance-uuid=fbbc6232-4dc5-43b8-8d87-5c3aae13d720
+PEV|1|fbbc6232-4dc5-43b8-8d87-5c3aae13d720|1|0|create|kernel|1|kernel-root|-|-|
+PEV|1|fbbc6232-4dc5-43b8-8d87-5c3aae13d720|2|0|write|kernel|1|kernel-root|version|-|len=3;vh=5080ae86
+PEV|1|fbbc6232-4dc5-43b8-8d87-5c3aae13d720|3|0|write|kernel|1|kernel-root|status|-|len=7;vh=147eb74c
+PEV|1|fbbc6232-4dc5-43b8-8d87-5c3aae13d720|4|0|restore|restore|0|-|-|-|nodes=4;blobs=19;prior_lineage=unknown
+PEV|1|fbbc6232-4dc5-43b8-8d87-5c3aae13d720|5|2394|write|shell|15|notes|question|-|len=21;vh=709a3636
+PEV|1|fbbc6232-4dc5-43b8-8d87-5c3aae13d720|6|2394|read|shell|15|notes|*|-|len=0;purpose=offload_context;sent=n2+n3;private_withheld=1
+PEV|1|fbbc6232-4dc5-43b8-8d87-5c3aae13d720|7|2394|offload|shell|15|notes|*|6|tool=ai;prompt_len=73;ctx_len=63;keys=2
+PEV|1|fbbc6232-4dc5-43b8-8d87-5c3aae13d720|8|2523|write|model:shell|15|notes|answer|7|len=38;vh=56399af4
+PSTAT|1|fbbc6232-4dc5-43b8-8d87-5c3aae13d720|emitted=8;dropped=0;drained=8;pending=0;next_id=9

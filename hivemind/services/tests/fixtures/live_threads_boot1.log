@@ -1,0 +1,68 @@
+[serial] HiveMind OS v0.1 — boot started
+[boot] heap initialized
+[boot] heap allocation probe passed: 66
+[boot] starting hive init
+[hive] new
+[hive] create root
+[hive] write version
+[hive] write status
+[hive] store global
+[hive] done
+[boot] hive init complete
+[boot] instance-uuid=a89d2546-bc74-4a38-9b76-edcfea875595
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|1|0|create|kernel|1|kernel-root|-|-|
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|2|0|write|kernel|1|kernel-root|version|-|len=3;vh=5080ae86
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|3|0|write|kernel|1|kernel-root|status|-|len=7;vh=147eb74c
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|4|1985|create|shell|4|threads|-|-|
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|5|1985|write|shell|4|threads|work|-|len=33;vh=4866e9bc
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|6|3124|write|shell|4|threads|home|-|len=34;vh=20a05d18
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|7|4007|write|shell|4|threads|health|-|len=22;vh=f3d58315
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|8|4584|write|shell|4|threads|health|-|len=23;vh=7c37a801
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|9|5782|create|shell|8|tasks|-|-|
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|10|5782|write|shell|8|tasks|t1|-|len=41;vh=73bae178
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|11|5782|marker|kernel|8|tasks|t1|10|route=1;thread=work;reason=keyword;why=acme
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|12|5782|write|kernel|8|tasks|t1_thread|11|len=4;vh=5b98d260
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|13|5958|write|kernel|8|tasks|t1|10|len=42;vh=9cd5ccca
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|14|6489|write|shell|8|tasks|t2|-|len=28;vh=4e3287ed
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|15|6489|marker|kernel|8|tasks|t2|14|route=1;thread=home;reason=tag;why=home
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|16|6489|write|kernel|8|tasks|t2_thread|15|len=4;vh=d2c8c28e
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|17|6790|write|shell|4|threads|_focus|-|len=6;vh=42079eac
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|18|7038|write|kernel|8|tasks|t2|14|len=29;vh=92f05d85
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|19|7038|marker|kernel|8|tasks|t2|18|held=1;thread=home;focus=work
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|20|7038|write|kernel|4|threads|_held|19|len=2;vh=0744eb43
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|21|7686|create|shell|15|notes|-|-|
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|22|7686|write|shell|15|notes|n1|-|len=21;vh=f5589108
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|23|7686|marker|kernel|15|notes|n1|22|route=1;thread=health;reason=keyword;why=meds
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|24|7686|write|kernel|15|notes|n1_thread|23|len=6;vh=6b98ed8f
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|25|7686|cap_deny|shell|15|notes|tool:ai|-|op=i;reason=private_thread;private_withheld=1
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|26|8554|write|shell|15|notes|n2|-|len=26;vh=cd78c17c
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|27|8554|marker|kernel|15|notes|n2|26|route=1;thread=inbox;reason=default;why=no_rule
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|28|8554|write|kernel|15|notes|n2_thread|27|len=5;vh=e252d53b
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|29|8554|read|shell|15|notes|*|-|len=0;purpose=offload_context;sent=n2
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|30|8554|offload|shell|15|notes|*|29|tool=ai;prompt_len=125;ctx_len=29;keys=1
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|31|8554|read|shell|15|notes|*|-|len=0;purpose=offload_context;sent=n2
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|32|8554|offload|shell|15|notes|*|31|tool=ai;prompt_len=86;ctx_len=29;keys=1
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|33|8660|write|model:shell|15|notes|n2_thread|30|len=4;vh=d2c8c28e
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|34|8661|marker|kernel|15|notes|n2|33|route=1;thread=home;reason=model
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|35|8661|write|kernel|15|notes|n2_thread|34|len=4;vh=d2c8c28e
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|36|8703|write|model:shell|15|notes|n2_tags|32|len=22;vh=8b69221d
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|37|9709|write|shell|15|notes|n3|-|len=30;vh=3c93103f
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|38|9709|marker|kernel|15|notes|n3|37|route=1;thread=work;reason=keyword;why=meeting
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|39|9709|write|kernel|15|notes|n3_thread|38|len=4;vh=5b98d260
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|40|9709|read|shell|15|notes|*|-|len=0;purpose=offload_context;sent=n3
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|41|9709|offload|shell|15|notes|*|40|tool=ai;prompt_len=86;ctx_len=33;keys=1
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|42|9754|write|model:shell|15|notes|n3_tags|41|len=21;vh=58be8691
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|43|10852|write|shell|15|notes|question|-|len=27;vh=5f218e61
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|44|10852|read|shell|15|notes|*|-|len=0;purpose=offload_context;sent=n2+n3;private_withheld=1
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|45|10852|offload|shell|15|notes|*|44|tool=ai;prompt_len=79;ctx_len=63;keys=2
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|46|10937|write|model:shell|15|notes|answer|45|len=94;vh=887b01ad
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|47|11145|write|peer|15|notes|n1_thread|-|len=4;vh=5b98d260;taint=1
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|48|11145|cap_deny|peer|4|threads|health|-|op=w;reason=protected_node
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|49|12138|write|shell|15|notes|question|-|len=27;vh=5f218e61
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|50|12138|read|shell|15|notes|*|-|len=0;purpose=offload_context;sent=n2+n3;private_withheld=1
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|51|12138|offload|shell|15|notes|*|50|tool=ai;prompt_len=79;ctx_len=63;keys=2
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|52|12209|write|model:shell|15|notes|answer|51|len=94;vh=3c183249
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|53|13414|marker|shell|4|threads|_focus|-|focus_end=1;held=1
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|54|13414|write|shell|4|threads|_focus|53|len=0;removed=1
+PEV|1|a89d2546-bc74-4a38-9b76-edcfea875595|55|13414|write|shell|4|threads|_held|53|len=0;removed=1
+PSTAT|1|a89d2546-bc74-4a38-9b76-edcfea875595|emitted=55;dropped=0;drained=55;pending=0;next_id=56

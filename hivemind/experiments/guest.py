@@ -18,7 +18,7 @@ WORK = r"C:\hivemind"
 
 KEYMAP = {" ": "spc", "-": "minus", ":": "shift-semicolon", ",": "comma", ".": "dot",
           "/": "slash", "_": "shift-minus", "=": "equal", ";": "semicolon", "*": "shift-8",
-          "+": "shift-equal", "?": "shift-slash", "!": "shift-1", "'": "apostrophe"}
+          "+": "shift-equal", "?": "shift-slash", "!": "shift-1", "'": "apostrophe", "#": "shift-3"}
 
 
 def _key(ch: str) -> str:

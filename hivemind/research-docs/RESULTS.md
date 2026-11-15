@@ -90,6 +90,35 @@ What this does not show: one run; one injection string; taint is per value and
 conservative; typed input is trusted; history (for clean rollback) does not survive
 a reboot, so after a reboot quarantine can only remove, not restore.
 
+## Life threads: kernel routing, focus, private threads (measured, real guest, real 3B model)
+`threads_live-20261115-084312.json`, fixtures `live_threads_boot1.log`, `live_threads_boot2.log`.
+**18 of 18 checks pass.** Two boots on one data disk, a mesh peer, llama3.2:3b. Guide: THREADS.md.
+* Routing by the user's rules: "call acme about the invoice" went to work (keyword
+  `acme`), "buy milk #home" to home (tag). "water the plants on sunday" matched no rule,
+  so the model was asked; it answered `home`, and the kernel accepted it because it is a
+  real thread name. `why tasks t1_thread` shows `-> work (keyword: acme)`.
+* Private thread: "refill meds on friday" went to `health` (private). Its tagging call
+  was refused in the kernel and nothing was sent. In every `ask`, before and after a
+  reboot, the note was kept back; the string never appears in any model request.
+* A mesh peer relabelled the private note as work and tried to rewrite the `health`
+  definition as public. The relabel was ignored and the rewrite was refused
+  (`reason=protected_node`).
+* Focus on work: the work reminder interrupted, the home reminder was held and came
+  back in the digest when focus ended.
+* Threads, privacy and routing survived the reboot; the desktop Tasks window shows threads.
+
+**Found by the first run** (`threads_live-20261115-080616.json`, 11 of 17 passing): the
+kernel ignored the peer's tainted thread definition, but the peer's write had already
+replaced the trusted one, so the private thread vanished and the private note was sent
+to the model twice, once after a reboot. Fixed by refusing peer writes to the `threads`
+node. The second run (`-082501`) passed everything except one check that was itself
+wrong (it expected a refusal; the correct behaviour was sending the other notes without
+the private one). The check was corrected and the run repeated.
+
+What this does not show: one run; one model; an item that no rule matches is shown to the
+model to be routed (use keywords, `#tag` or `thread model off` for sensitive areas);
+keyword matching is literal.
+
 ## Phase 3: workflow scheduler
 **Simulated** (`phase3_sim-20261114-202956.json`, 10 seeds, 200 workflows; model call
 durations derived from measured latency). Deadline miss rate, mean ± 95% CI:
@@ -169,5 +198,4 @@ justified for this workload; the scheduler keeps the per-model mean.
 
 ## What is not shown
 No comparison with other agent frameworks or operating systems; one machine; small
-repetition counts for the measured model phases; mesh has no authentication; taint
-detection does not block anything.
+repetition counts for the measured model phases; mesh has no authentication.

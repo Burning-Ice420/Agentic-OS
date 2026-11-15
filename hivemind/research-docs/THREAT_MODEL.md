@@ -63,6 +63,15 @@ path still sends the whole node, but under the policy. Measured in RESULTS.md,
 "Everyday apps and in-kernel taint tracking". Limits: per value, not per byte; control
 dependence taints conservatively; only mesh input counts as untrusted.
 
+Update (2026-11-15, threads): items in a private thread are left out of every model
+context by `Hive::model_context` (app and agent paths). A peer write to the `threads`
+node (thread definitions, focus) is refused by the kernel (`reason=protected_node`);
+a thread label a peer writes on a trusted item is ignored. The first live run found
+that only ignoring a tainted definition was not enough: the peer's write had already
+replaced the trusted one, the private thread disappeared, and a private note reached
+the model. Fixed by refusing the write. Limit: an item no rule matches is shown to the
+model to be routed, unless `thread model off`.
+
 ## Out of scope (not claimed)
 * Agents in this OS cannot execute commands; "agent self-grant" is prevented
   structurally (no path to the capability table) rather than by a policy check.
