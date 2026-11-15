@@ -179,6 +179,14 @@ fn serialize_hive(h: &mut hive::Hive) -> Vec<u8> {
     if h.caps.enforce {
         out.push_str("ENFORCE|1\n");
     }
+    // Taint survives a reboot: otherwise restarting would launder untrusted data.
+    // Version history is runtime-only (documented).
+    for (id, _, key) in h.tainted_blobs() {
+        let _ = write!(out, "TAINT|{}|{}\n", id, key);
+    }
+    if h.taint_policy != crate::apps_core::TaintPolicy::Off {
+        let _ = write!(out, "TPOL|{}\n", h.taint_policy.name());
+    }
 
     out.into_bytes()
 }
@@ -244,6 +252,16 @@ fn deserialize_hive(h: &mut hive::Hive, data: &[u8]) {
                         _            => EdgeType::Sync,
                     };
                     h.edges.push(crate::hive::MemoryEdge { from_id: from, to_id: to, edge_type: etype });
+                }
+                "TAINT" if parts.len() >= 3 => {
+                    if let Ok(id) = parts[1].parse::<u64>() {
+                        h.set_tainted(id, parts[2]);
+                    }
+                }
+                "TPOL" if parts.len() >= 2 => {
+                    if let Some(p) = crate::apps_core::TaintPolicy::parse(parts[1]) {
+                        h.taint_policy = p;
+                    }
                 }
                 // Fail-closed: a saved ENFORCE turns enforcement on, never off.
                 "ENFORCE" if parts.len() >= 2 && parts[1] == "1" => {

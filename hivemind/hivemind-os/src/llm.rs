@@ -137,7 +137,8 @@ struct LlmState {
     /// Outstanding requests in send order: (memory, offload event id, agent).
     /// The bridge answers in order, so a response is matched to the oldest
     /// pending request for the same memory (documented as a FIFO inference).
-    pending: VecDeque<(String, u64, Option<u64>)>,
+    /// (memory, offload event, agent, context was tainted)
+    pending: VecDeque<(String, u64, Option<u64>, bool)>,
     /// A UART answered the probe at init and has not timed out since.
     present: bool,
 }
@@ -176,13 +177,14 @@ pub fn present() -> bool {
 /// Offload a reasoning request to the AI accelerator. Non-blocking; the response
 /// is applied later by `poll_and_apply`.
 pub fn request(memory: &str, prompt: &str, context: &str) -> bool {
-    request_tracked(memory, prompt, context, 0, None)
+    request_tracked(memory, prompt, context, 0, None, false)
 }
 
 /// Offload with provenance: `offload_event` becomes the parent of the write that
 /// applies the answer, and `agent` is who the model is acting for (None = shell).
 /// Returns false (and sends nothing) when no accelerator is attached.
-pub fn request_tracked(memory: &str, prompt: &str, context: &str, offload_event: u64, agent: Option<u64>) -> bool {
+pub fn request_tracked(memory: &str, prompt: &str, context: &str, offload_event: u64, agent: Option<u64>,
+                       tainted: bool) -> bool {
     use x86_64::instructions::interrupts;
     interrupts::without_interrupts(|| {
         let mut m = LLM.lock();
@@ -192,7 +194,7 @@ pub fn request_tracked(memory: &str, prompt: &str, context: &str, offload_event:
         if m.pending.len() >= 32 {
             m.pending.pop_front(); // bound memory; an unanswered request loses its link
         }
-        m.pending.push_back((memory.to_string(), offload_event, agent));
+        m.pending.push_back((memory.to_string(), offload_event, agent, tainted));
         let mut line = String::new();
         let _ = write!(line, "LLMREQ|{}|{}|{}\n", memory, prompt, context);
         for b in line.bytes() {
@@ -243,14 +245,15 @@ pub fn poll_and_apply() -> usize {
     use crate::prov::Actor;
     for (memory, key, value) in &responses {
         let val = BlobValue::parse(value);
-        let (parent, agent) = interrupts::without_interrupts(|| {
+        let (parent, agent, tainted) = interrupts::without_interrupts(|| {
             let mut m = LLM.lock();
-            match m.pending.iter().position(|(mem, _, _)| mem == memory) {
+            match m.pending.iter().position(|(mem, _, _, _)| mem == memory) {
                 Some(i) => {
-                    let (_, ev, ag) = m.pending.remove(i).unwrap();
-                    (if ev == 0 { None } else { Some(ev) }, ag)
+                    let (_, ev, ag, t) = m.pending.remove(i).unwrap();
+                    (if ev == 0 { None } else { Some(ev) }, ag, t)
                 }
-                None => (None, None),
+                // An answer nobody asked for is treated as untrusted.
+                None => (None, None, true),
             }
         });
         // The model acts on behalf of the agent that asked, so it is checked with
@@ -258,11 +261,16 @@ pub fn poll_and_apply() -> usize {
         let actor = Actor::Model(agent);
         let res = hive::with_hive(|h| {
             let id = h.find_by_name(memory).unwrap_or_else(|| h.create_memory_as(actor, memory, None));
-            h.write_blob_as(actor, id, key, val, parent)
+            // The answer is as trustworthy as the context it was computed from.
+            h.write_blob_tx(actor, id, key, val, parent, tainted)
         });
         match res {
             WriteResult::Denied(ev) => crate::println!("  [AI] {} <- {} DENIED by policy (event {})", memory, key, ev),
-            _ => crate::println!("  [AI] {} <- {} = {}", memory, key, value),
+            _ => {
+                crate::println!("  [AI] {} <- {} = {}{}", memory, key, value,
+                    if tainted { "  (tainted: context held untrusted content)" } else { "" });
+                crate::apps::on_model_answer(memory, key, value, tainted);
+            }
         }
     }
     crate::disk::persist::mark_dirty();

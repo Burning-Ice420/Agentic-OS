@@ -8,6 +8,9 @@ use bootloader::{entry_point, BootInfo};
 use core::panic::PanicInfo;
 
 mod agent;
+mod apps;
+mod apps_cmd;
+mod apps_core;
 mod allocator;
 mod bench;
 mod boot_anim;

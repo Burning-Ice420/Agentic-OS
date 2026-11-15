@@ -66,6 +66,8 @@ pub const KEY_PGDN:  char = '\u{16}';
 pub const KEY_HOME:  char = '\u{17}';
 pub const KEY_END:   char = '\u{18}';
 pub const KEY_DEL:   char = '\u{7f}';
+/// F1..F12 arrive as private-use chars KEY_F1 + n (the desktop opens windows with them).
+pub const KEY_F1:    u32 = 0xE001;
 
 /// Map a `pc_keyboard` raw (non-Unicode) key to our control-code encoding.
 pub fn rawkey_to_char(code: pc_keyboard::KeyCode) -> Option<char> {
@@ -83,8 +85,15 @@ pub fn rawkey_to_char(code: pc_keyboard::KeyCode) -> Option<char> {
         KeyCode::PageDown   => KEY_PGDN,
         KeyCode::Home       => KEY_HOME,
         KeyCode::End        => KEY_END,
+        KeyCode::F1 => fkey(0), KeyCode::F2 => fkey(1), KeyCode::F3 => fkey(2),
+        KeyCode::F4 => fkey(3), KeyCode::F5 => fkey(4), KeyCode::F6 => fkey(5),
+        KeyCode::F7 => fkey(6), KeyCode::F8 => fkey(7), KeyCode::F9 => fkey(8),
         _ => return None,
     })
+}
+
+fn fkey(n: u32) -> char {
+    char::from_u32(KEY_F1 + n).unwrap_or('\0')
 }
 
 /// Called from the keyboard interrupt handler.
@@ -116,25 +125,23 @@ pub fn run() -> ! {
     let mut last_tick: u64 = 0;
 
     loop {
-        // Poll COM2 for incoming mesh messages from peer VMs.
-        crate::net::poll_and_apply();
+        // Mesh, model answers, provenance drain, agents, reminders, autosave:
+        // shared with the desktop so nothing stops while a window is open.
+        crate::apps::background(&mut last_tick);
 
-        // Poll COM3 for AI-accelerator responses (the slow deliberation tier).
-        crate::llm::poll_and_apply();
-
-        // Ship provenance events to user space (COM1, `PEV|...` lines).
-        crate::prov::drain(32);
-
-        // Periodic work, gated on the tick actually advancing so it runs at a
-        // steady rate regardless of how fast the loop spins.
-        let t = crate::interrupts::current_tick();
-        if t != last_tick {
-            last_tick = t;
-            // PIT default ≈ 18.2 Hz → roughly once per second.
-            if t % 18 == 0 {
-                crate::agent::tick_all();
+        // Reminders and model answers surface above the prompt; the line being
+        // typed is reprinted so input is not lost.
+        let mut shown = false;
+        while let Some(n) = crate::apps::take_notification() {
+            if !shown {
+                println!();
+                shown = true;
             }
-            crate::disk::persist::autosave_tick(t);
+            crate::apps_cmd::show_notification(&n);
+        }
+        if shown {
+            print_prompt();
+            print!("{}", line);
         }
 
         while let Some(c) = read_key() {
@@ -187,6 +194,7 @@ fn execute(line: &str) {
         parts[0],
         "mem" | "m" | "blob" | "b" | "link" | "signal" | "s" | "cap"
             | "mkdir" | "touch" | "write" | "rm" | "agent" | "ag"
+            | "task" | "todo" | "note" | "quarantine" | "rewind" | "taint"
     ) {
         crate::disk::persist::mark_dirty();
     }
@@ -194,7 +202,7 @@ fn execute(line: &str) {
     match parts[0] {
         "help"          => cmd_help(&parts[1..]),
         "clear"         => vga_buffer::clear_screen(),
-        "ui" | "desktop" | "notepad" => crate::desktop::run(),
+        "ui" | "desktop" | "notepad" => crate::desktop::run(parts.get(1).copied()),
         "hive"          => cmd_hive(),
         "mem" | "m"     => cmd_mem(&parts[1..]),
         "blob" | "b"    => cmd_blob(&parts[1..]),
@@ -243,6 +251,17 @@ fn execute(line: &str) {
         "cap"           => cmd_cap(&parts[1..]),
         "sched"         => cmd_sched(&parts[1..]),
         "bench"         => cmd_bench(&parts[1..]),
+        // ── everyday apps ──
+        "task" | "todo" | "tasks" => crate::apps_cmd::cmd_task(&parts[1..]),
+        "note" | "notes" => crate::apps_cmd::cmd_note(&parts[1..]),
+        "ask"           => crate::apps_cmd::cmd_ask(&parts[1..]),
+        // ── provenance and taint, in the OS ──
+        "why"           => crate::apps_cmd::cmd_why(&parts[1..]),
+        "activity" | "act" => crate::apps_cmd::cmd_activity(&parts[1..]),
+        "taint"         => crate::apps_cmd::cmd_taint(&parts[1..]),
+        "quarantine"    => crate::apps_cmd::cmd_quarantine(),
+        "rewind" | "undo" => crate::apps_cmd::cmd_rewind(&parts[1..]),
+        "history"       => crate::apps_cmd::cmd_history(&parts[1..]),
         // ── process list ──
         "ps"            => cmd_ps(),
         other           => {
@@ -267,6 +286,7 @@ fn cmd_help(args: &[&str]) {
             println!("  help net     Mesh networking (VM-to-VM over COM2)");
             println!("  help sys     System: sysinfo, save/load, time, ps, ...");
             println!("  help sec     Provenance (prov), capabilities (cap), sched");
+            println!("  help apps    Tasks + reminders, notes + ask, why, taint");
             println!();
             println!("  Quick: hive | mem list | ui (desktop) | sysinfo | halt");
             println!("  PageUp / PageDown scroll this console.");
@@ -326,8 +346,9 @@ fn cmd_help(args: &[&str]) {
             println!("  halt                        Halt the OS");
             println!("  ui / desktop / notepad      Open the mouse desktop");
         }
+        Some("apps") | Some("app") | Some("task") | Some("note") | Some("taint") => crate::apps_cmd::help(),
         Some(other) => {
-            println!("  No help topic '{}'. Try: mem  fs  agent  net  sys", other);
+            println!("  No help topic '{}'. Try: mem  fs  agent  net  sys  sec  apps", other);
         }
     }
     vga_buffer::set_color(Color::LightGreen, Color::Black);
@@ -887,42 +908,11 @@ fn cmd_ai(args: &[&str]) {
         }
     };
     let prompt = if args.len() > 1 { args[1..].join(" ") } else { "decide the next action".to_string() };
-
-    // Gather the memory node's name + blob state as context for the model.
-    let gathered = hive::with_hive(|h| {
-        let out = h.memories.get(&id).map(|m| {
-            let mut ctx = String::new();
-            use core::fmt::Write;
-            for (k, b) in &m.blobs {
-                if !ctx.is_empty() { ctx.push(','); }
-                let _ = write!(ctx, "{}={}", k, b.value.display());
-            }
-            (m.name.clone(), ctx)
-        });
-        if let Some((name, ctx)) = &out {
-            let rd = h.note_read(crate::prov::Actor::Shell, id, "*", None, "purpose=offload_context");
-            let mut a = String::new();
-            use core::fmt::Write;
-            let _ = write!(a, "tool=ai;prompt_len={};ctx_len={}", prompt.len(), ctx.len());
-            let ev = crate::prov::emit(crate::prov::Kind::Offload, crate::prov::Actor::Shell, id, name, "*", Some(rd), a);
-            return out.map(|(n, c)| (n, c, ev));
-        }
-        None
-    });
-
-    match gathered {
-        None => println!("  Memory node {} not found.", id),
-        Some((name, ctx, ev)) => {
-            if crate::llm::request_tracked(&name, &prompt, &ctx, ev, None) {
-                vga_buffer::set_color(Color::White, Color::Black);
-                println!("  AI request sent for '{}' (task: {}).", name, prompt);
-                println!("  The model's action will apply when the bridge responds.");
-                vga_buffer::set_color(Color::LightGreen, Color::Black);
-            } else {
-                println!("  No model accelerator on COM3 (start with -LLM); request not sent.");
-            }
-        }
-    }
+    // Same path as notes and agents: the taint policy applies before anything
+    // leaves the VM.
+    let o = crate::apps::offload(crate::prov::Actor::Shell, id, &prompt, None);
+    let (m, _) = crate::apps::offload_msg(&o);
+    println!("  {}", m);
 }
 
 fn cmd_sysinfo() {

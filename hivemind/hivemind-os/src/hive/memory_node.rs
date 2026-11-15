@@ -30,14 +30,30 @@ impl MemoryNode {
     }
 
     pub fn write_blob(&mut self, key: &str, value: BlobValue) {
+        self.write_blob_versioned(key, value, 0, false);
+    }
+
+    /// Overwrite (or create) a blob, keeping the previous value in its bounded
+    /// history together with the event that wrote it and its taint.
+    pub fn write_blob_versioned(&mut self, key: &str, value: BlobValue, event: u64, tainted: bool) {
         let tick = crate::interrupts::current_tick();
         if let Some(blob) = self.blobs.get_mut(key) {
+            // A paged-out blob holds only a placeholder in RAM; don't version that.
+            if blob.paged_sector.is_none() {
+                let old = core::mem::replace(&mut blob.value, BlobValue::Text(String::new()));
+                crate::apps_core::push_version(&mut blob.history, crate::apps_core::Version {
+                    value: old, event: blob.last_event, tainted: blob.tainted });
+            }
             blob.value         = value;
             blob.modified_tick = tick;
             blob.paged_sector  = None; // an overwrite makes it resident again
+            blob.tainted       = tainted;
+            blob.last_event    = event;
         } else {
             let id   = next_id();
-            let blob = Blob::new(id, key, value, self.id);
+            let mut blob = Blob::new(id, key, value, self.id);
+            blob.tainted = tainted;
+            blob.last_event = event;
             self.blobs.insert(key.to_string(), blob);
         }
     }

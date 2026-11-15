@@ -95,6 +95,12 @@ pub fn report_stats() {
     });
 }
 
+/// Copy of the events the kernel still holds (most recent last), for in-OS
+/// tools: `why`, `activity`, the desktop Activity window.
+pub fn recent() -> alloc::vec::Vec<crate::prov_core::Event> {
+    without_interrupts(|| RING.lock().recent.iter().cloned().collect())
+}
+
 // ── Policy decision log (for `cap explain`) ───────────────────────────────────
 
 #[derive(Clone)]

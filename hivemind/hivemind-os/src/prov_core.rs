@@ -9,7 +9,12 @@
 
 use alloc::collections::VecDeque;
 use alloc::string::String;
+use alloc::vec::Vec;
 use core::fmt::Write;
+
+/// How many events the kernel keeps after shipping them, so in-OS tools
+/// (`why`, the Activity window) can answer questions without the host.
+pub const RECENT_CAP: usize = 256;
 
 pub const SCHEMA_VERSION: u32 = 1;
 
@@ -106,6 +111,8 @@ pub struct Event {
 pub struct Ring {
     buf: VecDeque<Event>,
     cap: usize,
+    /// Copies of the most recent events, kept after drain (bounded).
+    pub recent: VecDeque<Event>,
     next_id: u64,
     pub emitted: u64,
     pub dropped: u64,
@@ -115,7 +122,7 @@ pub struct Ring {
 
 impl Ring {
     pub const fn new(cap: usize) -> Self {
-        Ring { buf: VecDeque::new(), cap, next_id: 1, emitted: 0, dropped: 0, drained: 0, enabled: true }
+        Ring { buf: VecDeque::new(), cap, recent: VecDeque::new(), next_id: 1, emitted: 0, dropped: 0, drained: 0, enabled: true }
     }
 
     /// Record an event. Returns its id (also when dropped, so parents stay consistent),
@@ -128,17 +135,22 @@ impl Ring {
         }
         let id = self.next_id;
         self.next_id += 1;
+        let ev = Event {
+            id, tick, kind, actor, mem_id,
+            mem_name: sanitize(mem_name),
+            key: sanitize(key),
+            parent, attrs,
+        };
+        if self.recent.len() >= RECENT_CAP {
+            self.recent.pop_front();
+        }
+        self.recent.push_back(ev.clone());
         if self.buf.len() >= self.cap {
             self.dropped += 1;
             return id;
         }
         self.emitted += 1;
-        self.buf.push_back(Event {
-            id, tick, kind, actor, mem_id,
-            mem_name: sanitize(mem_name),
-            key: sanitize(key),
-            parent, attrs,
-        });
+        self.buf.push_back(ev);
         id
     }
 
@@ -198,4 +210,78 @@ pub fn format_line(e: &Event, runtime: &str) -> String {
     s.push('|');
     s.push_str(&e.attrs);
     s
+}
+
+/// Value of one `k=v` attribute.
+pub fn attr<'a>(attrs: &'a str, key: &str) -> Option<&'a str> {
+    attrs.split(';').find_map(|kv| {
+        let mut it = kv.splitn(2, '=');
+        if it.next()? == key { it.next() } else { None }
+    })
+}
+
+/// How a step in a why-chain was linked to the step before it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Link {
+    Start,
+    /// Recorded by the kernel at the time (the event's parent).
+    Explicit,
+    /// A read linked to the latest earlier write of the same blob, hash-checked.
+    ReadFrom,
+}
+
+impl Link {
+    pub fn name(&self) -> &'static str {
+        match self { Link::Start => "", Link::Explicit => "caused by", Link::ReadFrom => "read value from" }
+    }
+}
+
+/// The latest write to `mem_id/key` with id < `before`.
+pub fn latest_write_before<'a>(events: &'a [Event], mem_id: u64, key: &str, before: u64) -> Option<&'a Event> {
+    events.iter().rev().find(|e| e.kind == Kind::Write && e.mem_id == mem_id && e.key == key && e.id < before)
+}
+
+/// Walk back from event `start` through explicit parents and single-key
+/// read-from links, using only events still held in memory. A whole-node read
+/// (`*`) stops the walk; its inputs are listed by `node_inputs`.
+pub fn why_chain(events: &[Event], start: u64, max: usize) -> Vec<(Event, Link)> {
+    let mut out = Vec::new();
+    let mut cur = events.iter().find(|e| e.id == start).cloned();
+    let mut link = Link::Start;
+    while let Some(e) = cur {
+        if out.len() >= max || out.iter().any(|(x, _): &(Event, Link)| x.id == e.id) {
+            break;
+        }
+        let next = match e.parent {
+            Some(p) => events.iter().find(|x| x.id == p).cloned().map(|x| (x, Link::Explicit)),
+            None if e.kind == Kind::Read && e.key != "*" => {
+                latest_write_before(events, e.mem_id, &e.key, e.id)
+                    .filter(|w| attr(&w.attrs, "vh") == attr(&e.attrs, "vh"))
+                    .cloned()
+                    .map(|w| (w, Link::ReadFrom))
+            }
+            None => None,
+        };
+        out.push((e, link));
+        match next {
+            Some((n, l)) => { cur = Some(n); link = l; }
+            None => cur = None,
+        }
+    }
+    out
+}
+
+/// For a whole-node read (offload context), the latest write of every key in
+/// that node before it: what the model was actually shown.
+pub fn node_inputs(events: &[Event], read: &Event) -> Vec<Event> {
+    // `sent=k1+k2` (when present) names exactly the keys that left the VM.
+    let sent: Option<Vec<&str>> = attr(&read.attrs, "sent").map(|s| s.split('+').filter(|k| !k.is_empty()).collect());
+    let mut keys: Vec<&str> = Vec::new();
+    for e in events.iter() {
+        if e.kind == Kind::Write && e.mem_id == read.mem_id && e.id < read.id && !keys.contains(&e.key.as_str())
+            && sent.as_ref().map_or(true, |s| s.contains(&e.key.as_str())) {
+            keys.push(&e.key);
+        }
+    }
+    keys.iter().filter_map(|k| latest_write_before(events, read.mem_id, k, read.id).cloned()).collect()
 }

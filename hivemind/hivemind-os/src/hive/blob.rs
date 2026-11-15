@@ -82,6 +82,13 @@ pub struct Blob {
     /// While paged, `value` holds an empty placeholder and the real bytes live
     /// on disk; a read pages it back in.
     pub paged_sector:    Option<u32>,
+    /// Content derived from an untrusted origin (a mesh peer, or anything an
+    /// agent or the model produced from such content) flowed into this value.
+    pub tainted:         bool,
+    /// Provenance event of the write that produced the current value.
+    pub last_event:      u64,
+    /// Earlier values, oldest first (bounded), for `rewind` and `quarantine`.
+    pub history:         Vec<crate::apps_core::Version<BlobValue>>,
 }
 
 impl Blob {
@@ -95,6 +102,9 @@ impl Blob {
             created_tick:    tick,
             modified_tick:   tick,
             paged_sector:    None,
+            tainted:         false,
+            last_event:      0,
+            history:         Vec::new(),
         }
     }
 }

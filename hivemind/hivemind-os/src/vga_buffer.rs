@@ -55,6 +55,12 @@ pub const SCROLLBACK: usize = 200;
 /// Rows moved per PageUp / PageDown.
 const PAGE_STEP: usize = BUFFER_HEIGHT - 3;
 
+/// Off-screen frame for the desktop: while a frame is open, cell writes land
+/// here and `end_frame` copies the whole screen at once (no visible flicker).
+static mut SHADOW: [[ScreenChar; BUFFER_WIDTH]; BUFFER_HEIGHT] =
+    [[ScreenChar { ascii_character: b' ', color_code: ColorCode(0) }; BUFFER_WIDTH]; BUFFER_HEIGHT];
+static FRAMING: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
 #[repr(transparent)]
 struct Buffer {
     chars: [[Volatile<ScreenChar>; BUFFER_WIDTH]; BUFFER_HEIGHT],
@@ -232,7 +238,7 @@ impl Writer {
             0x20..=0x7e => byte,
             _ => b' ',
         };
-        self.buffer.chars[row][col].write(ScreenChar {
+        self.put_cell(row, col, ScreenChar {
             ascii_character: byte,
             color_code: ColorCode::new(fg, bg),
         });
@@ -243,7 +249,7 @@ impl Writer {
         if row >= BUFFER_HEIGHT || col >= BUFFER_WIDTH {
             return;
         }
-        self.buffer.chars[row][col].write(ScreenChar {
+        self.put_cell(row, col, ScreenChar {
             ascii_character: byte,
             color_code: ColorCode::new(fg, bg),
         });
@@ -253,19 +259,50 @@ impl Writer {
         if row >= BUFFER_HEIGHT || col >= BUFFER_WIDTH {
             return (b' ', 0);
         }
-        let sc = self.buffer.chars[row][col].read();
+        let sc = if FRAMING.load(core::sync::atomic::Ordering::Relaxed) {
+            unsafe { SHADOW[row][col] }
+        } else {
+            self.buffer.chars[row][col].read()
+        };
         (sc.ascii_character, sc.color_code.0)
+    }
+
+    fn put_cell(&mut self, row: usize, col: usize, sc: ScreenChar) {
+        if FRAMING.load(core::sync::atomic::Ordering::Relaxed) {
+            unsafe { SHADOW[row][col] = sc; }
+        } else {
+            self.buffer.chars[row][col].write(sc);
+        }
     }
 
     fn write_cell_raw(&mut self, row: usize, col: usize, ch: u8, color: u8) {
         if row >= BUFFER_HEIGHT || col >= BUFFER_WIDTH {
             return;
         }
-        self.buffer.chars[row][col].write(ScreenChar {
+        self.put_cell(row, col, ScreenChar {
             ascii_character: ch,
             color_code: ColorCode(color),
         });
     }
+}
+
+/// Start drawing a frame off-screen (desktop only).
+pub fn begin_frame() {
+    FRAMING.store(true, core::sync::atomic::Ordering::Relaxed);
+}
+
+/// Copy the finished frame to the screen in one pass.
+pub fn end_frame() {
+    use x86_64::instructions::interrupts;
+    interrupts::without_interrupts(|| {
+        let mut w = WRITER.lock();
+        FRAMING.store(false, core::sync::atomic::Ordering::Relaxed);
+        for r in 0..BUFFER_HEIGHT {
+            for c in 0..BUFFER_WIDTH {
+                w.buffer.chars[r][c].write(unsafe { SHADOW[r][c] });
+            }
+        }
+    });
 }
 
 impl fmt::Write for Writer {

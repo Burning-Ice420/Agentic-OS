@@ -25,9 +25,13 @@ const HIVE:     usize = 2;
 const FILES:    usize = 3;
 const MESH:     usize = 4;
 const HELP:     usize = 5;
-const KINDS:    usize = 6;
+const TASKS:    usize = 6;
+const NOTES:    usize = 7;
+const ACTIVITY: usize = 8;
+const KINDS:    usize = 9;
 
-const NAMES: [&str; KINDS] = ["Terminal", "Notepad", "Hive", "Files", "Mesh", "Help"];
+const NAMES: [&str; KINDS] = ["Terminal", "Notepad", "Hive", "Files", "Mesh", "Help",
+                              "Tasks", "Notes", "Activity"];
 
 // Default window geometry: (x, y, w, h).
 const DEFAULT_GEOM: [(usize, usize, usize, usize); KINDS] = [
@@ -37,6 +41,9 @@ const DEFAULT_GEOM: [(usize, usize, usize, usize); KINDS] = [
     (24, 4, 42, 15), // Files
     (26, 6, 40, 11), // Mesh
     (20, 3, 54, 19), // Help
+    (16, 3, 60, 17), // Tasks
+    (15, 2, 64, 20), // Notes
+    (14, 2, 66, 21), // Activity
 ];
 
 // CP437 glyphs.
@@ -49,15 +56,39 @@ const S_H:  u8 = 0xC4; const S_V:  u8 = 0xB3;
 const LOG_CAP:  usize = 64;
 const NOTE_CAP: usize = 1200;
 
-pub fn run() {
+/// Open the desktop; `open` names a window to start on (tasks, notes, activity, ...).
+pub fn run(open: Option<&str>) {
     let mut app = DesktopApp::new();
     app.raise(HELP);
+    if let Some(name) = open {
+        if let Some(k) = NAMES.iter().position(|n| n.eq_ignore_ascii_case(name)) {
+            app.raise(k);
+        }
+    }
     app.render();
 
+    let mut last_tick = 0u64;
+    let mut last_paint = 0u64;
     loop {
-        crate::net::poll_and_apply();
+        // Agents, reminders, model answers and provenance keep running while
+        // the desktop is open.
+        crate::apps::background(&mut last_tick);
 
         let mut dirty = false;
+        while let Some(n) = crate::apps::take_notification() {
+            app.add_log(&n);
+            app.banner = Some((n, crate::interrupts::current_tick() + 18 * 8));
+            dirty = true;
+        }
+        // Repaint about once a second so the clock, tasks and activity are live.
+        let t = crate::interrupts::current_tick();
+        if t.wrapping_sub(last_paint) >= 18 {
+            last_paint = t;
+            if let Some((_, until)) = &app.banner {
+                if t >= *until { app.banner = None; }
+            }
+            dirty = true;
+        }
 
         while let Some(c) = crate::shell::read_key() {
             if app.handle_key(c) {
@@ -99,6 +130,16 @@ struct DesktopApp {
     files_path: String,
     /// True when the notepad contents match what was last saved to the hive.
     note_saved: bool,
+    /// Input lines of the Tasks, Notes and Activity windows.
+    task_in:  String,
+    notes_in: String,
+    act_in:   String,
+    /// Last status message per window, with its tone.
+    msg:      [(String, crate::apps::Tone); KINDS],
+    /// Activity window: a `why` result is shown instead of the live feed.
+    why_view: Option<Vec<(String, crate::apps::Tone)>>,
+    /// Reminder / answer banner and the tick it disappears at.
+    banner:   Option<(String, u64)>,
 }
 
 impl DesktopApp {
@@ -131,6 +172,12 @@ impl DesktopApp {
             m_row:    BUFFER_HEIGHT / 2,
             files_path: "/".to_string(),
             note_saved: true,
+            task_in:  String::new(),
+            notes_in: String::new(),
+            act_in:   String::new(),
+            msg:      Default::default(),
+            why_view: None,
+            banner:   None,
         };
         for k in 0..KINDS {
             let (x, y, w, h) = DEFAULT_GEOM[k];
@@ -182,6 +229,11 @@ impl DesktopApp {
                 return true;
             }
             '\t' => { self.cycle_focus(); return false; }
+            // F1..F9 open (or focus) windows in launcher order.
+            c if (c as u32) >= crate::shell::KEY_F1 && (c as u32) < crate::shell::KEY_F1 + KINDS as u32 => {
+                self.raise((c as u32 - crate::shell::KEY_F1) as usize);
+                return false;
+            }
             _ => {}
         }
 
@@ -193,9 +245,98 @@ impl DesktopApp {
         match kind {
             TERMINAL => self.terminal_key(c),
             NOTEPAD  => self.notepad_key(c),
+            TASKS | NOTES | ACTIVITY => self.app_key(kind, c),
             _ => {}
         }
         false
+    }
+
+    /// Line editing for the app windows; Enter runs the line.
+    fn app_key(&mut self, kind: usize, c: char) {
+        let max = self.ww[kind].saturating_sub(10);
+        let buf = match kind { TASKS => &mut self.task_in, NOTES => &mut self.notes_in, _ => &mut self.act_in };
+        match c {
+            '\n' => {
+                let line = buf.trim().to_string();
+                buf.clear();
+                match kind {
+                    TASKS => self.tasks_enter(&line),
+                    NOTES => self.notes_enter(&line),
+                    _ => self.activity_enter(&line),
+                }
+            }
+            '\x08' => { buf.pop(); }
+            c if c.is_ascii() && !c.is_control() => { if buf.len() < max { buf.push(c); } }
+            _ => {}
+        }
+    }
+
+    fn tasks_enter(&mut self, line: &str) {
+        use crate::apps::Tone;
+        use crate::prov::Actor;
+        let mut it = line.splitn(2, ' ');
+        let first = it.next().unwrap_or("");
+        let rest = it.next().unwrap_or("").trim();
+        self.msg[TASKS] = match first {
+            "" => return,
+            "done" => if crate::apps::task_done(Actor::Desktop, rest) { (format!("{} done", rest), Tone::Normal) }
+                      else { (format!("no task {}", rest), Tone::Deny) },
+            "del" => if crate::apps::task_del(Actor::Desktop, rest) { (format!("{} deleted", rest), Tone::Normal) }
+                     else { (format!("no task {}", rest), Tone::Deny) },
+            "snooze" => if crate::apps::task_snooze(Actor::Desktop, rest, 5) { (format!("{} snoozed 5 min", rest), Tone::Normal) }
+                        else { (format!("no task {}", rest), Tone::Deny) },
+            due => match crate::apps::task_add(Actor::Desktop, due, rest) {
+                Ok((k, d)) => (format!("added {} for {}", k, crate::apps_core::fmt_hhmm(d)), Tone::Normal),
+                Err(e) => (e.to_string(), Tone::Deny),
+            },
+        };
+    }
+
+    fn notes_enter(&mut self, line: &str) {
+        use crate::prov::Actor;
+        if line.is_empty() { return; }
+        if let Some(q) = line.strip_prefix('?') {
+            let o = crate::apps::ask(Actor::Desktop, q.trim());
+            let (m, t) = crate::apps::offload_msg(&o);
+            self.msg[NOTES] = (format!("ask: {}", m), t);
+        } else {
+            let (k, o) = crate::apps::note_add(Actor::Desktop, line);
+            let (m, t) = crate::apps::offload_msg(&o);
+            self.msg[NOTES] = (format!("saved {}; tags {}", k, m), t);
+        }
+    }
+
+    fn activity_enter(&mut self, line: &str) {
+        use crate::apps::Tone;
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        match parts.as_slice() {
+            [] | ["live"] => { self.why_view = None; self.msg[ACTIVITY] = ("live feed".to_string(), Tone::Dim); }
+            ["why", node, key] => {
+                self.why_view = Some(crate::apps::why(node, key));
+                self.msg[ACTIVITY] = (format!("why {}/{}  (Enter on empty line: back to live)", node, key), Tone::Dim);
+            }
+            ["quarantine"] | ["q"] => self.quarantine(),
+            ["policy", p] => match crate::apps_core::TaintPolicy::parse(p) {
+                Some(pol) => {
+                    crate::hive::with_hive(|h| h.taint_policy = pol);
+                    crate::prov::emit_plain(crate::prov::Kind::CapChange, crate::prov::Actor::Desktop, "taint_policy",
+                        None, crate::prov::attrs(&[("policy", pol.name())]));
+                    crate::disk::persist::mark_dirty();
+                    self.msg[ACTIVITY] = (format!("taint policy: {}", pol.name()), Tone::Model);
+                }
+                None => self.msg[ACTIVITY] = ("policy off|block|redact".to_string(), Tone::Deny),
+            },
+            _ => self.msg[ACTIVITY] = ("why <node> <key> | quarantine | policy off|block|redact | live".to_string(), Tone::Deny),
+        }
+    }
+
+    fn quarantine(&mut self) {
+        use crate::apps::Tone;
+        let (r, d, ev) = crate::hive::with_hive(|h| h.quarantine(crate::prov::Actor::Desktop));
+        crate::disk::persist::mark_dirty();
+        self.why_view = None;
+        self.msg[ACTIVITY] = (format!("quarantine #{}: {} rolled back, {} removed", ev, r, d),
+                              if r + d > 0 { Tone::Model } else { Tone::Dim });
     }
 
     fn terminal_key(&mut self, c: char) {
@@ -280,6 +421,11 @@ impl DesktopApp {
                 // Notepad Save button: [Save] sits just left of the close box.
                 if k == NOTEPAD && row == y && col >= x + w - 10 && col < x + w - 3 {
                     self.save_note();
+                    return;
+                }
+                // Activity [Quarantine] button.
+                if k == ACTIVITY && row == y && col >= x + w - 16 && col < x + w - 4 {
+                    self.quarantine();
                     return;
                 }
                 // Title bar → begin drag.
@@ -434,6 +580,12 @@ impl DesktopApp {
     // ── Rendering ─────────────────────────────────────────────────────────────
 
     fn render(&self) {
+        vga_buffer::begin_frame();
+        self.render_frame();
+        vga_buffer::end_frame();
+    }
+
+    fn render_frame(&self) {
         // Desktop background.
         vga_buffer::fill_raw(1, 0, BUFFER_HEIGHT - 2, BUFFER_WIDTH, SH_BG, Color::Blue, Color::Black);
 
@@ -447,6 +599,10 @@ impl DesktopApp {
         }
 
         self.draw_taskbar();
+        if let Some((b, _)) = &self.banner {
+            vga_buffer::fill_rect(1, 0, 1, BUFFER_WIDTH, ' ', Color::Black, Color::Yellow);
+            vga_buffer::write_at(1, 1, clip(&format!("(!) {}", b), BUFFER_WIDTH - 2), Color::Black, Color::Yellow);
+        }
         self.draw_cursor();
     }
 
@@ -475,13 +631,14 @@ impl DesktopApp {
             let over = self.point_in_icon(i, self.m_col, self.m_row);
             let border = if over { Color::Yellow } else { Color::LightCyan };
             let bg = Color::Black;
-            // Icon panel.
-            vga_buffer::fill_rect(y, x, h, w, ' ', Color::White, bg);
-            draw_single_frame(y, x, h, w, border, bg);
-            // Centered label.
+            // One-row button; the new apps get a distinct colour.
+            let bg = if i >= TASKS { Color::Magenta } else { Color::Blue };
+            let fg = if over { Color::Yellow } else { Color::White };
+            let _ = border;
+            vga_buffer::fill_rect(y, x, h, w, ' ', fg, bg);
             let name = NAMES[i];
             let lx = x + (w.saturating_sub(name.len())) / 2;
-            vga_buffer::write_at(y + 1, lx, name, Color::White, bg);
+            vga_buffer::write_at(y, lx, name, fg, bg);
         }
     }
 
@@ -512,6 +669,9 @@ impl DesktopApp {
             let sb = if self.note_saved { Color::LightGreen } else { Color::Yellow };
             vga_buffer::write_at(y, x + w - 10, "[Save]", Color::Black, sb);
         }
+        if kind == ACTIVITY {
+            vga_buffer::write_at(y, x + w - 16, "[Quarantine]", Color::White, Color::Magenta);
+        }
         // Close box.
         vga_buffer::write_at(y, x + w - 3, "[X]", Color::White, Color::Red);
 
@@ -527,8 +687,97 @@ impl DesktopApp {
             FILES    => self.draw_files(iy, ix, ih, iw),
             MESH     => self.draw_mesh(iy, ix, ih, iw),
             HELP     => self.draw_help(iy, ix, ih, iw),
+            TASKS    => self.draw_tasks(iy, ix, ih, iw, focused),
+            NOTES    => self.draw_notes(iy, ix, ih, iw, focused),
+            ACTIVITY => self.draw_activity(iy, ix, ih, iw, focused),
             _ => {}
         }
+    }
+
+    /// Bottom two rows of an app window: status message, then the input line.
+    fn draw_input(&self, kind: usize, y: usize, x: usize, h: usize, w: usize, focused: bool, prompt: &str, buf: &str) {
+        if h < 3 { return; }
+        let (m, t) = &self.msg[kind];
+        vga_buffer::write_at(y + h - 2, x, clip(m, w), tone_color(*t), Color::Black);
+        let iy = y + h - 1;
+        vga_buffer::write_at(iy, x, prompt, Color::LightCyan, Color::Black);
+        let shown = clip(buf, w.saturating_sub(prompt.len() + 2));
+        vga_buffer::write_at(iy, x + prompt.len() + 1, shown, Color::White, Color::Black);
+        if focused {
+            let cx = (x + prompt.len() + 1 + shown.len()).min(x + w - 1);
+            vga_buffer::put_raw_at(iy, cx, b'_', Color::Yellow, Color::Black);
+        }
+    }
+
+    fn draw_tasks(&self, y: usize, x: usize, h: usize, w: usize, focused: bool) {
+        use crate::apps_core::{fmt_hhmm, Status};
+        let now = crate::apps::now_abs();
+        vga_buffer::write_at(y, x, clip("Add: +5 stretch  |  18:30 call home   then: done t1, del t1, snooze t1", w),
+            Color::DarkGray, Color::Black);
+        let tasks = crate::apps::task_list();
+        if tasks.is_empty() {
+            vga_buffer::write_at(y + 2, x, "No tasks yet.", Color::DarkGray, Color::Black);
+        }
+        for (i, (k, t, tainted)) in tasks.iter().enumerate().take(h.saturating_sub(4)) {
+            let (mark, col) = match t.status {
+                Status::Open => ("[ ]", Color::White),
+                Status::Fired => ("[!]", Color::Yellow),
+                Status::Done => ("[x]", Color::DarkGray),
+            };
+            let col = if *tainted { Color::Pink } else { col };
+            let left = t.due - now;
+            let when = if t.status == Status::Open && left > 0 && left < 600 {
+                format!("{} in {}m", fmt_hhmm(t.due), left)
+            } else {
+                fmt_hhmm(t.due)
+            };
+            let l = format!("{} {:<4} {:<13} {}{}", mark, k, when, t.text, if *tainted { " [untrusted]" } else { "" });
+            vga_buffer::write_at(y + 1 + i, x, clip(&l, w), col, Color::Black);
+        }
+        self.draw_input(TASKS, y, x, h, w, focused, "task>", &self.task_in);
+    }
+
+    fn draw_notes(&self, y: usize, x: usize, h: usize, w: usize, focused: bool) {
+        vga_buffer::write_at(y, x, clip("Type a note + Enter.  Start with ? to ask your notes.", w),
+            Color::DarkGray, Color::Black);
+        let mut rows: Vec<(String, Color)> = Vec::new();
+        for (k, text, tags, tainted) in crate::apps::note_list() {
+            let c = if tainted { Color::Pink } else { Color::White };
+            rows.push((format!("{} {}{}", k, text, if tainted { " [untrusted]" } else { "" }), c));
+            if let Some(g) = tags {
+                rows.push((format!("   #{}", g), Color::DarkGray));
+            }
+        }
+        let body = h.saturating_sub(6);
+        let start = rows.len().saturating_sub(body);
+        for (i, (l, c)) in rows[start..].iter().enumerate() {
+            vga_buffer::write_at(y + 1 + i, x, clip(l, w), *c, Color::Black);
+        }
+        if let Some((a, tainted)) = crate::apps::last_answer() {
+            let c = if tainted { Color::Pink } else { Color::Yellow };
+            vga_buffer::write_at(y + h - 4, x, clip(&format!("AI: {}", a), w), c, Color::Black);
+            let hint = if tainted { "answer used UNTRUSTED content; see Activity: why notes answer" }
+                       else { "Activity window: why notes answer  shows what it used" };
+            vga_buffer::write_at(y + h - 3, x, clip(hint, w), Color::DarkGray, Color::Black);
+        }
+        self.draw_input(NOTES, y, x, h, w, focused, "note>", &self.notes_in);
+    }
+
+    fn draw_activity(&self, y: usize, x: usize, h: usize, w: usize, focused: bool) {
+        let (pol, n) = crate::hive::with_hive(|hv| (hv.taint_policy, hv.tainted_blobs().len()));
+        let head = format!("taint policy: {}   untrusted values: {}   ({} events kept)", pol.name(), n,
+            crate::prov_core::RECENT_CAP);
+        vga_buffer::write_at(y, x, clip(&head, w), if n > 0 { Color::Pink } else { Color::LightCyan }, Color::Black);
+        let body = h.saturating_sub(3);
+        let lines = match &self.why_view {
+            Some(v) => v.clone(),
+            None => crate::apps::activity(body),
+        };
+        let start = if self.why_view.is_some() { 0 } else { lines.len().saturating_sub(body) };
+        for (i, (l, t)) in lines[start..].iter().enumerate().take(body) {
+            vga_buffer::write_at(y + 1 + i, x, clip(l, w), tone_color(*t), Color::Black);
+        }
+        self.draw_input(ACTIVITY, y, x, h, w, focused, "act>", &self.act_in);
     }
 
     fn draw_terminal(&self, y: usize, x: usize, h: usize, w: usize, focused: bool) {
@@ -619,10 +868,17 @@ impl DesktopApp {
             "",
             "Keyboard:",
             "  Tab   cycle window focus",
+            "  F1-F9 open windows (F7 Tasks,",
+            "        F8 Notes, F9 Activity)",
             "  Esc   close window / exit desktop",
             "  Type into Terminal or Notepad",
             "",
             "Terminal: type 'help' for commands.",
+            "",
+            "Tasks: '+5 stretch' adds a reminder.",
+            "Notes: type a note; '?question' asks AI.",
+            "Activity: live events, 'why notes answer',",
+            "  'policy block', [Quarantine] button.",
         ];
         for (i, l) in lines.iter().enumerate().take(h) {
             vga_buffer::write_at(y + i, x, clip(l, w), Color::White, Color::Black);
@@ -654,9 +910,20 @@ impl DesktopApp {
 
 // ── Free helpers ────────────────────────────────────────────────────────────
 
-/// Launcher icon rectangle: (y, x, h, w).
+/// Launcher icon rectangle: (y, x, h, w). One-row buttons, a blank row apart.
 fn icon_rect(i: usize) -> (usize, usize, usize, usize) {
-    (2 + i * 3, 1, 3, 13)
+    (2 + i * 2, 1, 1, 13)
+}
+
+fn tone_color(t: crate::apps::Tone) -> Color {
+    use crate::apps::Tone;
+    match t {
+        Tone::Normal => Color::White,
+        Tone::Model => Color::Yellow,
+        Tone::Deny => Color::LightRed,
+        Tone::Taint => Color::Pink,
+        Tone::Dim => Color::DarkGray,
+    }
 }
 
 fn draw_single_frame(y: usize, x: usize, h: usize, w: usize, fg: Color, bg: Color) {

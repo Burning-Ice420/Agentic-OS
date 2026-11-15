@@ -13,6 +13,7 @@ use memory_node::MemoryNode;
 
 use crate::cap_core::{ops_string, CapTable, Decision, Subject, OP_INVOKE, OP_READ, OP_WRITE};
 use crate::prov::{self, value_attrs, Actor, Kind};
+use crate::apps_core::{build_context, last_clean, Context, TaintPolicy};
 
 // ── Global ID counter ─────────────────────────────────────────────────────────
 
@@ -79,6 +80,8 @@ pub struct Hive {
     pub signal_log: Vec<Signal>,
     /// Capability table, enforced at the write/read/invoke boundary below.
     pub caps:       CapTable,
+    /// What happens when tainted content would be sent to the model.
+    pub taint_policy: TaintPolicy,
 }
 
 /// Outcome of an attributed write.
@@ -118,6 +121,7 @@ impl Hive {
             edges:      Vec::new(),
             signal_log: Vec::new(),
             caps:       CapTable::new(),
+            taint_policy: TaintPolicy::Off,
         }
     }
 
@@ -179,6 +183,15 @@ impl Hive {
     /// Attributed, authorized blob write. Every graph write should go through here.
     pub fn write_blob_as(&mut self, actor: Actor, memory_id: u64, key: &str, value: BlobValue,
                          parent: Option<u64>) -> WriteResult {
+        self.write_blob_tx(actor, memory_id, key, value, parent, false)
+    }
+
+    /// Attributed, authorized write with taint tracking. The new value is tainted
+    /// if the writer is a mesh peer or `derived_taint` says it was computed from
+    /// tainted content (an agent fired by a tainted value, a model answer whose
+    /// context included tainted content).
+    pub fn write_blob_tx(&mut self, actor: Actor, memory_id: u64, key: &str, value: BlobValue,
+                         parent: Option<u64>, derived_taint: bool) -> WriteResult {
         let name = match self.memories.get(&memory_id) {
             Some(m) => m.name.clone(),
             None => return WriteResult::NotFound,
@@ -187,14 +200,138 @@ impl Hive {
             Ok(a) => a,
             Err(ev) => return WriteResult::Denied(ev),
         };
+        let tainted = derived_taint || actor == Actor::Peer;
         let mut a = value_attrs(&value.display());
         if let Some(av) = auth {
             let _ = write!(a, ";auth={}", av);
         }
-        if let Some(mem) = self.memories.get_mut(&memory_id) {
-            mem.write_blob(key, value);
+        if tainted {
+            a.push_str(";taint=1");
         }
-        WriteResult::Written(prov::emit(Kind::Write, actor, memory_id, &name, key, parent, a))
+        let ev = prov::emit(Kind::Write, actor, memory_id, &name, key, parent, a);
+        if let Some(mem) = self.memories.get_mut(&memory_id) {
+            mem.write_blob_versioned(key, value, ev, tainted);
+        }
+        WriteResult::Written(ev)
+    }
+
+    // ── Taint ──────────────────────────────────────────────────────────────────
+
+    pub fn blob_tainted(&self, memory_id: u64, key: &str) -> bool {
+        self.memories.get(&memory_id).and_then(|m| m.blobs.get(key)).map_or(false, |b| b.tainted)
+    }
+
+    /// Every tainted blob as (memory_id, node name, key).
+    pub fn tainted_blobs(&self) -> Vec<(u64, String, String)> {
+        let mut out = Vec::new();
+        for (id, m) in &self.memories {
+            for (k, b) in &m.blobs {
+                if b.tainted {
+                    out.push((*id, m.name.clone(), k.clone()));
+                }
+            }
+        }
+        out
+    }
+
+    /// Build the context sent to the model from a node, under the taint policy.
+    /// `only` restricts it to some keys; `skip_suffix` drops derived keys
+    /// (e.g. `_tags`) so the model sees the source text, not its own output.
+    pub fn model_context(&self, memory_id: u64, only: Option<&[&str]>, skip_suffix: Option<&str>,
+                         max_len: usize) -> Context {
+        let mut entries = Vec::new();
+        if let Some(m) = self.memories.get(&memory_id) {
+            for (k, b) in &m.blobs {
+                if skip_suffix.map_or(false, |sfx| k.ends_with(sfx)) {
+                    continue;
+                }
+                entries.push((k.clone(), b.value.display(), b.tainted));
+            }
+        }
+        build_context(&entries, only, self.taint_policy, max_len)
+    }
+
+    /// Restore one blob to an earlier version, or remove it if `idx` is None.
+    /// Recorded as a write by `actor` with `rollback` attributes.
+    fn restore_blob(&mut self, actor: Actor, memory_id: u64, key: &str, idx: Option<usize>,
+                    parent: Option<u64>) -> Option<u64> {
+        let name = self.memories.get(&memory_id)?.name.clone();
+        let undone = self.memories.get(&memory_id)?.blobs.get(key)?.last_event;
+        match idx {
+            Some(i) => {
+                let blob = self.memories.get_mut(&memory_id)?.blobs.get_mut(key)?;
+                let v = blob.history.remove(i);
+                blob.history.truncate(i); // later versions belonged to the undone line
+                let mut a = value_attrs(&v.value.display());
+                let _ = write!(a, ";rollback_of={};restored_from={}", undone, v.event);
+                if v.tainted {
+                    a.push_str(";taint=1");
+                }
+                let ev = prov::emit(Kind::Write, actor, memory_id, &name, key, parent, a);
+                blob.value = v.value;
+                blob.tainted = v.tainted;
+                blob.last_event = ev;
+                blob.paged_sector = None;
+                blob.modified_tick = crate::interrupts::current_tick();
+                Some(ev)
+            }
+            None => {
+                let mut a = String::from("len=0;removed=1");
+                let _ = write!(a, ";rollback_of={}", undone);
+                let ev = prov::emit(Kind::Write, actor, memory_id, &name, key, parent, a);
+                self.memories.get_mut(&memory_id)?.blobs.remove(key);
+                Some(ev)
+            }
+        }
+    }
+
+    /// Undo the latest write to a blob (go back one version; remove the blob if
+    /// it has no earlier version). Returns the rollback event.
+    pub fn rewind(&mut self, actor: Actor, memory_id: u64, key: &str) -> Option<u64> {
+        let n = self.memories.get(&memory_id)?.blobs.get(key)?.history.len();
+        let idx = if n == 0 { None } else { Some(n - 1) };
+        self.restore_blob(actor, memory_id, key, idx, None)
+    }
+
+    /// Roll every tainted blob back to its newest clean version, removing blobs
+    /// that never had one. Returns (restored, removed, summary_event).
+    pub fn quarantine(&mut self, actor: Actor) -> (usize, usize, u64) {
+        let targets = self.tainted_blobs();
+        let mut a = String::new();
+        let _ = write!(a, "tainted={};policy={}", targets.len(), self.taint_policy.name());
+        let summary = prov::emit(Kind::Marker, actor, 0, "-", "quarantine", None, a);
+        let (mut restored, mut removed) = (0, 0);
+        for (id, _, key) in targets {
+            let idx = self.memories.get(&id).and_then(|m| m.blobs.get(&key)).and_then(|b| last_clean(&b.history));
+            if self.restore_blob(actor, id, &key, idx, Some(summary)).is_some() {
+                if idx.is_some() { restored += 1; } else { removed += 1; }
+            }
+        }
+        (restored, removed, summary)
+    }
+
+    /// Delete a blob, recorded as a write of nothing by `actor`.
+    pub fn remove_blob(&mut self, actor: Actor, memory_id: u64, key: &str, parent: Option<u64>) -> Option<u64> {
+        let name = self.memories.get(&memory_id)?.name.clone();
+        self.memories.get(&memory_id)?.blobs.get(key)?;
+        let ev = prov::emit(Kind::Write, actor, memory_id, &name, key, parent, String::from("len=0;removed=1"));
+        self.memories.get_mut(&memory_id)?.blobs.remove(key);
+        Some(ev)
+    }
+
+    /// Find a node by name, creating it (attributed to `actor`) if missing.
+    pub fn node_named(&mut self, actor: Actor, name: &str) -> u64 {
+        match self.find_by_name(name) {
+            Some(id) => id,
+            None => self.create_memory_as(actor, name, None),
+        }
+    }
+
+    /// Mark a blob tainted without writing it (used when restoring from disk).
+    pub fn set_tainted(&mut self, memory_id: u64, key: &str) {
+        if let Some(b) = self.memories.get_mut(&memory_id).and_then(|m| m.blobs.get_mut(key)) {
+            b.tainted = true;
+        }
     }
 
     /// Record that `actor` observed `key` of a node (`*` = the whole node).

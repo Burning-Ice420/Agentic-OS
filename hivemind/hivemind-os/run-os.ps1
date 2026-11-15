@@ -122,7 +122,7 @@ Write-Host "    vCPUs        : $Cpus  (kernel uses 1)" -ForegroundColor Gray
 Write-Host "    Data disk    : $DiskMB MiB" -ForegroundColor Gray
 Write-Host ""
 
-$baseArgs = "$accelArg -m ${Memory}M -smp $Cpus -no-reboot -no-shutdown"
+$baseArgs = "$accelArg -m ${Memory}M -smp $Cpus -no-reboot -no-shutdown -rtc base=localtime"  # local time, so reminders like 18:30 mean your 18:30
 $qemuCmd  = "-drive format=raw,file=$BootImg $baseArgs"
 
 # ── Instance registry ─────────────────────────────────────────────────────────
@@ -247,8 +247,9 @@ if ($VMCount -ge 2) {
         $qemuCmd += " -serial file:$serialLog"
     }
     if ($LLM -and -not $Observe) {
-        $qemuCmd += " -serial null -serial tcp:127.0.0.1:4455,server,nowait"
-        Write-Host "  AI accelerator (COM3) enabled." -ForegroundColor Magenta
+        # COM2 is exposed too, so peer-send.py can play an untrusted device on the mesh.
+        $qemuCmd += " -serial tcp:127.0.0.1:4444,server,nowait -serial tcp:127.0.0.1:4455,server,nowait"
+        Write-Host "  AI accelerator (COM3) enabled. Mesh (COM2) on :4444 for peer-send.py." -ForegroundColor Magenta
         Write-Host "  In another terminal run:  python hive-llm-bridge.py" -ForegroundColor White
         Write-Host "  (needs Ollama + a small model, e.g. 'ollama pull llama3.2:1b')" -ForegroundColor DarkGray
     }

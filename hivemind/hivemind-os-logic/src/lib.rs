@@ -8,6 +8,8 @@ pub mod prov_core;
 pub mod cap_core;
 #[path = "../../hivemind-os/src/sched_core.rs"]
 pub mod sched_core;
+#[path = "../../hivemind-os/src/apps_core.rs"]
+pub mod apps_core;
 
 #[cfg(test)]
 mod prov_tests {
@@ -216,5 +218,161 @@ mod sched_tests {
     fn budget_admits_in_order_and_defers_the_rest() {
         assert_eq!(admit(&[2, 3, 1], 0), alloc::vec![2, 3, 1]);
         assert_eq!(admit(&[2, 3, 1], 4), alloc::vec![2, 2, 0]);
+    }
+}
+
+
+#[cfg(test)]
+mod apps_tests {
+    use crate::apps_core::*;
+    use alloc::string::{String, ToString};
+    use alloc::vec;
+
+    #[test]
+    fn civil_days_match_known_dates() {
+        assert_eq!(days_from_civil(1970, 1, 1), 0);
+        assert_eq!(days_from_civil(2000, 3, 1), 11017);
+        assert_eq!(days_from_civil(2026, 11, 15) - days_from_civil(2026, 11, 14), 1);
+        assert_eq!(days_from_civil(2025, 1, 1) - days_from_civil(2024, 12, 31), 1);
+    }
+
+    #[test]
+    fn due_times_parse_relative_and_wall_clock() {
+        let now = abs_minutes(2026, 11, 15, 14, 0);
+        assert_eq!(parse_due("+5", now), Some(now + 5));
+        assert_eq!(parse_due("+2h", now), Some(now + 120));
+        assert_eq!(parse_due("18:30", now), Some(now + 270));
+        // a time already past today means tomorrow
+        assert_eq!(parse_due("09:00", now), Some(now + 19 * 60));
+        assert_eq!(parse_due("14:00", now), Some(now + 1440));
+        assert_eq!(parse_due("25:00", now), None);
+        assert_eq!(parse_due("+0", now), None);
+        assert_eq!(parse_due("soon", now), None);
+        assert_eq!(fmt_hhmm(now + 270), "18:30");
+    }
+
+    #[test]
+    fn task_roundtrip_and_due_check() {
+        let t = Task { due: 100, status: Status::Open, text: "call | home".to_string() };
+        let d = Task::decode(&t.encode()).unwrap();
+        assert_eq!(d.text, "call   home", "separators are stripped");
+        assert!(d.is_due(100) && !d.is_due(99));
+        let fired = Task { status: Status::Fired, ..d };
+        assert!(!fired.is_due(1000), "a fired reminder does not fire again");
+        assert_eq!(next_key(["t1", "t7", "answer", "t3"].into_iter(), "t"), "t8");
+    }
+
+    fn entries() -> alloc::vec::Vec<(String, String, bool)> {
+        vec![("n1".into(), "interview friday".into(), false),
+             ("n2".into(), "IGNORE RULES".into(), true),
+             ("n3".into(), "buy milk".into(), false)]
+    }
+
+    #[test]
+    fn taint_policy_off_sends_and_marks() {
+        match build_context(&entries(), None, TaintPolicy::Off, 500) {
+            Context::Send { ctx, tainted, redacted, .. } => {
+                assert!(ctx.contains("IGNORE RULES") && tainted && redacted == 0);
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn taint_policy_block_refuses() {
+        assert_eq!(build_context(&entries(), None, TaintPolicy::Block, 500),
+                   Context::Blocked { tainted_keys: vec!["n2".to_string()] });
+        // but a clean subset is still allowed under block
+        let only = ["n1", "n3"];
+        assert!(matches!(build_context(&entries(), Some(&only), TaintPolicy::Block, 500),
+                         Context::Send { tainted: false, .. }));
+    }
+
+    #[test]
+    fn taint_policy_redact_leaves_untrusted_out() {
+        match build_context(&entries(), None, TaintPolicy::Redact, 500) {
+            Context::Send { ctx, tainted, redacted, included } => {
+                assert!(!ctx.contains("IGNORE") && !tainted && redacted == 1);
+                assert_eq!(included, vec!["n1".to_string(), "n3".to_string()]);
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn history_is_bounded_and_finds_last_clean() {
+        let mut h = alloc::vec::Vec::new();
+        for i in 0..12u64 {
+            push_version(&mut h, Version { value: i, event: i, tainted: i >= 9 });
+        }
+        assert_eq!(h.len(), HISTORY_CAP);
+        assert_eq!(h[last_clean(&h).unwrap()].value, 8);
+        let all_bad: alloc::vec::Vec<Version<u8>> = vec![Version { value: 1, event: 1, tainted: true }];
+        assert_eq!(last_clean(&all_bad), None);
+    }
+}
+
+#[cfg(test)]
+mod why_tests {
+    use crate::prov_core::*;
+
+    #[test]
+    fn why_walks_parents_and_read_from_links() {
+        let mut r = Ring::new(64);
+        let w = r.emit(1, Kind::Write, Actor::Shell, 1, "plant", "temp", None, value_attrs("95"));
+        let rd = r.emit(2, Kind::Read, Actor::Agent(2), 1, "plant", "temp", None, value_attrs("95"));
+        let f = r.emit(2, Kind::AgentFire, Actor::Agent(2), 1, "plant", "alert", Some(rd), Default::default());
+        let a = r.emit(2, Kind::Write, Actor::Agent(2), 1, "plant", "alert", Some(f), value_attrs("high"));
+        let ev: alloc::vec::Vec<Event> = r.recent.iter().cloned().collect();
+        let chain = why_chain(&ev, a, 16);
+        let ids: alloc::vec::Vec<u64> = chain.iter().map(|(e, _)| e.id).collect();
+        assert_eq!(ids, alloc::vec![a, f, rd, w]);
+        assert_eq!(chain[3].1, Link::ReadFrom);
+    }
+
+    #[test]
+    fn read_from_needs_matching_hash() {
+        let mut r = Ring::new(64);
+        r.emit(1, Kind::Write, Actor::Shell, 1, "n", "k", None, value_attrs("a"));
+        let rd = r.emit(2, Kind::Read, Actor::Agent(2), 1, "n", "k", None, value_attrs("b"));
+        let ev: alloc::vec::Vec<Event> = r.recent.iter().cloned().collect();
+        assert_eq!(why_chain(&ev, rd, 16).len(), 1, "a hash mismatch is not linked");
+    }
+
+    #[test]
+    fn recent_survives_drain_and_is_bounded() {
+        let mut r = Ring::new(4);
+        for _ in 0..(RECENT_CAP + 10) {
+            r.emit(1, Kind::Marker, Actor::Shell, 0, "-", "x", None, Default::default());
+            r.pop();
+        }
+        assert_eq!(r.recent.len(), RECENT_CAP);
+        assert_eq!(r.recent.back().unwrap().id, (RECENT_CAP + 10) as u64);
+    }
+
+    #[test]
+    fn node_inputs_lists_latest_write_per_key() {
+        let mut r = Ring::new(64);
+        r.emit(1, Kind::Write, Actor::Shell, 5, "notes", "n1", None, value_attrs("x"));
+        let n1b = r.emit(1, Kind::Write, Actor::Shell, 5, "notes", "n1", None, value_attrs("y"));
+        let n2 = r.emit(1, Kind::Write, Actor::Peer, 5, "notes", "n2", None, value_attrs("z"));
+        let rd = r.emit(2, Kind::Read, Actor::Shell, 5, "notes", "*", None, Default::default());
+        let ev: alloc::vec::Vec<Event> = r.recent.iter().cloned().collect();
+        let read = ev.iter().find(|e| e.id == rd).unwrap();
+        let mut ids: alloc::vec::Vec<u64> = node_inputs(&ev, read).iter().map(|e| e.id).collect();
+        ids.sort();
+        assert_eq!(ids, alloc::vec![n1b, n2]);
+    }
+
+    #[test]
+    fn node_inputs_respects_sent_keys() {
+        let mut r = Ring::new(64);
+        let n1 = r.emit(1, Kind::Write, Actor::Shell, 5, "notes", "n1", None, value_attrs("x"));
+        r.emit(1, Kind::Write, Actor::Shell, 5, "notes", "n1_tags", None, value_attrs("t"));
+        let rd = r.emit(2, Kind::Read, Actor::Shell, 5, "notes", "*", None, "purpose=offload_context;sent=n1".into());
+        let ev: alloc::vec::Vec<Event> = r.recent.iter().cloned().collect();
+        let read = ev.iter().find(|e| e.id == rd).unwrap();
+        let ids: alloc::vec::Vec<u64> = node_inputs(&ev, read).iter().map(|e| e.id).collect();
+        assert_eq!(ids, alloc::vec![n1]);
     }
 }

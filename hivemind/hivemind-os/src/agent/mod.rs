@@ -264,7 +264,7 @@ pub fn tick_all() {
     // need other locks (mesh send, model request) are collected and run after.
     let mut audit_events: Vec<AgentEvent> = Vec::new();
     let mut sends: Vec<(String, String, String, u64, u64, u64)> = Vec::new(); // mem, key, val, mem_id, write_ev, agent
-    let mut offloads: Vec<(String, String, String, u64, u64)> = Vec::new(); // mem, task, ctx, offload_ev, agent
+    let mut offloads: Vec<(String, String, String, u64, u64, bool)> = Vec::new(); // mem, task, ctx, offload_ev, agent, tainted
     let mut applied_rules: Vec<(usize, Vec<usize>)> = Vec::new();
     let mut deferred_rules: Vec<(usize, Vec<usize>)> = Vec::new();
     let mut n_applied = 0u64;
@@ -296,6 +296,12 @@ pub fn tick_all() {
                 }
                 let mut extra = String::new();
                 let _ = write!(extra, "rule={};cond={}", ri, r.condition.describe());
+                // Taint flows through the agent: a rule fired by an untrusted value
+                // produces an untrusted result (control dependence, conservative).
+                let cond_tainted = h.blob_tainted(s.memory_id, &r.watch_key);
+                if cond_tainted {
+                    extra.push_str(";taint=1");
+                }
                 let read_ev = h.note_read(actor, s.memory_id, &r.watch_key, None, &extra);
                 let mut fa = String::new();
                 let _ = write!(fa, "rule={}", ri);
@@ -310,16 +316,27 @@ pub fn tick_all() {
                         Ok(a) => a,
                         Err(_) => continue,
                     };
-                    let ctx_ev = h.note_read(actor, s.memory_id, "*", Some(fire_ev), "purpose=offload_context");
-                    let mut ctx = String::new();
-                    if let Some(m) = h.memories.get(&s.memory_id) {
-                        for (bk, b) in &m.blobs {
-                            if !ctx.is_empty() {
-                                ctx.push(',');
-                            }
-                            let _ = write!(ctx, "{}={}", bk, b.value.display());
+                    // The whole node leaves the VM as context, under the taint policy.
+                    let (ctx, ctx_tainted, redacted, sent) = match h.model_context(s.memory_id, None, None, 700) {
+                        crate::apps_core::Context::Send { ctx, tainted, redacted, included } => (ctx, tainted, redacted, included.join("+")),
+                        crate::apps_core::Context::Blocked { tainted_keys } => {
+                            let mut da = String::new();
+                            let _ = write!(da, "op=i;reason=tainted_context;tainted_keys={}", tainted_keys.len());
+                            let dev = prov::emit(Kind::CapDeny, actor, s.memory_id, &mem_name, "tool:ai", Some(fire_ev), da);
+                            let mut t = String::new();
+                            let _ = write!(t, "event {}: agent {} model call BLOCKED, context held {} tainted key(s)",
+                                dev, s.agent_id, tainted_keys.len());
+                            prov::record_decision(dev, t);
+                            audit_events.push(AgentEvent { tick, agent: s.name.clone(),
+                                key: "ai_blocked".to_string(), value: "tainted_context".to_string() });
+                            continue;
                         }
-                    }
+                    };
+                    let mut ca = String::from("purpose=offload_context;sent=");
+                    ca.push_str(&sent);
+                    if ctx_tainted { ca.push_str(";taint=1"); }
+                    if redacted > 0 { let _ = write!(ca, ";redacted={}", redacted); }
+                    let ctx_ev = h.note_read(actor, s.memory_id, "*", Some(fire_ev), &ca);
                     let task = if prompt.is_empty() { "decide the next action" } else { prompt };
                     let mut oa = String::new();
                     let _ = write!(oa, "tool=ai;prompt_len={};ctx_len={}", task.len(), ctx.len());
@@ -330,12 +347,12 @@ pub fn tick_all() {
                         oa.push_str(";device=absent");
                     }
                     let off_ev = prov::emit(Kind::Offload, actor, s.memory_id, &mem_name, "*", Some(ctx_ev), oa);
-                    offloads.push((mem_name.clone(), task.to_string(), ctx, off_ev, s.agent_id));
+                    offloads.push((mem_name.clone(), task.to_string(), ctx, off_ev, s.agent_id, ctx_tainted));
                     audit_events.push(AgentEvent { tick, agent: s.name.clone(),
                         key: "ai_offload".to_string(), value: task.to_string() });
                 } else {
                     let val = r.action_value.clone();
-                    match h.write_blob_as(actor, s.memory_id, &r.action_key, BlobValue::parse(&val), Some(fire_ev)) {
+                    match h.write_blob_tx(actor, s.memory_id, &r.action_key, BlobValue::parse(&val), Some(fire_ev), cond_tainted) {
                         WriteResult::Written(wev) => {
                             sends.push((mem_name.clone(), r.action_key.clone(), val.clone(), s.memory_id, wev, s.agent_id));
                             audit_events.push(AgentEvent { tick, agent: s.name.clone(),
@@ -353,8 +370,8 @@ pub fn tick_all() {
     for (mem, key, val, mem_id, wev, agent) in &sends {
         crate::net::send_blob_tracked(mem, key, val, Actor::Agent(*agent), *mem_id, Some(*wev));
     }
-    for (mem, task, ctx, off_ev, agent) in &offloads {
-        let _ = crate::llm::request_tracked(mem, task, ctx, *off_ev, Some(*agent));
+    for (mem, task, ctx, off_ev, agent, tainted) in &offloads {
+        let _ = crate::llm::request_tracked(mem, task, ctx, *off_ev, Some(*agent), *tainted);
     }
     if fired_any {
         crate::disk::persist::mark_dirty();
