@@ -109,7 +109,12 @@ class Lineage:
         for e in self.events.values():
             if e.kind != "read" or not e.mem_id:
                 continue
-            keys = by_node[(e.runtime, e.mem_id)] if e.key == "*" else [e.key]
+            if e.key == "*":
+                # `sent=k1+k2` names exactly the keys that left the VM (newer kernels)
+                sent = e.attrs.get("sent")
+                keys = [k for k in sent.split("+") if k] if sent is not None else by_node[(e.runtime, e.mem_id)]
+            else:
+                keys = [e.key]
             found = []
             for k in keys:
                 prior = [w for w in writes.get((e.runtime, e.mem_id, k), []) if w.id < e.id]

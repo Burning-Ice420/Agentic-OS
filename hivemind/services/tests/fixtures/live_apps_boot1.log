@@ -1,0 +1,37 @@
+[serial] HiveMind OS v0.1 — boot started
+[boot] heap initialized
+[boot] heap allocation probe passed: 66
+[boot] starting hive init
+[hive] new
+[hive] create root
+[hive] write version
+[hive] write status
+[hive] store global
+[hive] done
+[boot] hive init complete
+[boot] instance-uuid=b6c4bcc3-807d-4691-955b-a3650f2edce9
+PEV|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|1|0|create|kernel|1|kernel-root|-|-|
+PEV|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|2|0|write|kernel|1|kernel-root|version|-|len=3;vh=5080ae86
+PEV|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|3|0|write|kernel|1|kernel-root|status|-|len=7;vh=147eb74c
+PEV|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|4|1282|create|shell|4|tasks|-|-|
+PEV|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|5|1282|write|shell|4|tasks|t1|-|len=21;vh=69307ff7
+PEV|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|6|1458|write|kernel|4|tasks|t1|5|len=22;vh=e581d603
+PEV|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|7|2368|create|shell|6|notes|-|-|
+PEV|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|8|2368|write|shell|6|notes|n1|-|len=36;vh=29e783dd
+PEV|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|9|2368|read|shell|6|notes|*|-|len=0;purpose=offload_context;sent=n1
+PEV|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|10|2368|offload|shell|6|notes|*|9|tool=ai;prompt_len=86;ctx_len=39;keys=1
+PEV|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|11|2549|write|model:shell|6|notes|n1_tags|10|len=21;vh=cfab70e5
+PEV|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|12|3093|write|shell|6|notes|n2|-|len=17;vh=61dce713
+PEV|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|13|3093|read|shell|6|notes|*|-|len=0;purpose=offload_context;sent=n2
+PEV|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|14|3093|offload|shell|6|notes|*|13|tool=ai;prompt_len=86;ctx_len=20;keys=1
+PEV|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|15|3142|write|model:shell|6|notes|n2_tags|14|len=18;vh=869449c2
+PEV|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|16|3865|write|shell|6|notes|question|-|len=20;vh=ab7ea968
+PEV|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|17|3865|read|shell|6|notes|*|-|len=0;purpose=offload_context;sent=n1+n2
+PEV|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|18|3865|offload|shell|6|notes|*|17|tool=ai;prompt_len=72;ctx_len=60;keys=2
+PEV|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|19|3935|write|model:shell|6|notes|answer|18|len=35;vh=f4a97128
+PEV|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|20|4774|write|peer|6|notes|n3|-|len=51;vh=3ad92a1a;taint=1
+PEV|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|21|5589|write|shell|6|notes|question|-|len=20;vh=ab7ea968
+PEV|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|22|5589|read|shell|6|notes|*|-|len=0;purpose=offload_context;sent=n1+n2+n3;taint=1
+PEV|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|23|5589|offload|shell|6|notes|*|22|tool=ai;prompt_len=72;ctx_len=115;keys=3;taint=1
+PEV|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|24|5643|write|model:shell|6|notes|answer|23|len=27;vh=f1bc8bb8;taint=1
+PSTAT|1|b6c4bcc3-807d-4691-955b-a3650f2edce9|emitted=24;dropped=0;drained=24;pending=0;next_id=25

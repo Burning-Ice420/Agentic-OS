@@ -246,3 +246,42 @@ class TestRealTwoVmFixture(unittest.TestCase):
         s = self.g.stats()
         self.assertEqual(s["peer_writes_ambiguous"], 0)
         self.assertEqual(len(s["instances"]), 2)
+
+
+class TestSentKeys(unittest.TestCase):
+    def test_whole_node_read_links_only_the_keys_sent(self):
+        L = [
+            "PEV|1|r|1|1|write|shell|1|notes|n1|-|len=3;vh=1",
+            "PEV|1|r|2|1|write|peer|1|notes|n2|-|len=3;vh=2;taint=1",
+            "PEV|1|r|3|1|write|shell|1|notes|question|-|len=3;vh=3",
+            "PEV|1|r|4|2|read|shell|1|notes|*|-|len=0;purpose=offload_context;sent=n1;redacted=1",
+            "PEV|1|r|5|2|offload|shell|1|notes|*|4|tool=ai",
+        ]
+        g = Lineage.from_lines(L)
+        self.assertEqual(g.read_from["r:4"], ["r:1"])
+        self.assertFalse(g.taint("r:5")["tainted"], "a redacted peer note is not an input")
+
+
+class TestRealAppsFixture(unittest.TestCase):
+    """Real two-boot run of experiments/apps_live.py (notes, injection, block, redact, quarantine)."""
+
+    def setUp(self):
+        d = os.path.join(os.path.dirname(__file__), "fixtures")
+        ps = [os.path.join(d, f"live_apps_boot{i}.log") for i in (1, 2)]
+        if not all(os.path.exists(p) for p in ps):
+            self.skipTest("fixtures not recorded yet")
+        self.b1, self.b2 = (Lineage.from_files([p]) for p in ps)
+
+    def test_injected_note_taints_the_answer_and_taint_query_agrees(self):
+        ans = [e for e in self.b1.events.values() if e.kind == "write" and e.key == "answer"]
+        self.assertEqual(len(ans), 2)
+        self.assertNotEqual(ans[0].attrs.get("taint"), "1")
+        self.assertEqual(ans[1].attrs.get("taint"), "1")
+        self.assertTrue(self.b1.taint(ans[1].gid)["tainted"], "host-side lineage agrees with the kernel's mark")
+        self.assertFalse(self.b1.taint(ans[0].gid)["tainted"])
+
+    def test_block_redact_quarantine(self):
+        ev = list(self.b2.events.values())
+        self.assertTrue(any(e.kind == "cap_deny" and e.attrs.get("reason") == "tainted_context" for e in ev))
+        self.assertTrue(any(e.kind == "read" and e.attrs.get("redacted") == "1" for e in ev))
+        self.assertTrue(any(e.kind == "write" and e.key == "n3" and e.attrs.get("removed") == "1" for e in ev))

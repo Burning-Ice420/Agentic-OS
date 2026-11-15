@@ -17,7 +17,8 @@ QEMU_IMG = r"C:\msys64\mingw64\bin\qemu-img.exe"
 WORK = r"C:\hivemind"
 
 KEYMAP = {" ": "spc", "-": "minus", ":": "shift-semicolon", ",": "comma", ".": "dot",
-          "/": "slash", "_": "shift-minus", "=": "equal", ";": "semicolon", "*": "shift-8"}
+          "/": "slash", "_": "shift-minus", "=": "equal", ";": "semicolon", "*": "shift-8",
+          "+": "shift-equal", "?": "shift-slash", "!": "shift-1", "'": "apostrophe"}
 
 
 def _key(ch: str) -> str:
@@ -31,7 +32,7 @@ def _key(ch: str) -> str:
 class Guest:
     def __init__(self, name: str, boot: str, accel: str = "whpx,kernel-irqchip=off", mem: str = "64M",
                  monitor_port: int = 5590, com2: str | None = None, com3: str | None = None,
-                 data_disk_mb: int | None = None):
+                 data_disk_mb: int | None = None, keep_data: bool = False):
         self.name = name
         self.log = os.path.join(WORK, f"{name}.log")
         self.port = monitor_port
@@ -39,9 +40,10 @@ class Guest:
         self.data = os.path.join(WORK, f"{name}-data.img") if data_disk_mb else None
         args = [QEMU, "-drive", f"format=raw,file={boot}"]
         if self.data:
-            if os.path.exists(self.data):
+            if os.path.exists(self.data) and not keep_data:
                 os.remove(self.data)
-            subprocess.run([QEMU_IMG, "create", "-f", "raw", self.data, f"{data_disk_mb}M"], capture_output=True)
+            if not os.path.exists(self.data):
+                subprocess.run([QEMU_IMG, "create", "-f", "raw", self.data, f"{data_disk_mb}M"], capture_output=True)
             args += ["-drive", f"file={self.data},format=raw,if=ide,index=1"]
         if os.path.exists(self.log):
             os.remove(self.log)
@@ -50,7 +52,8 @@ class Guest:
                  "-serial", com2 or "null"]
         if com3:
             args += ["-serial", com3]
-        args += ["-monitor", f"tcp:127.0.0.1:{monitor_port},server,nowait", "-accel", accel]
+        args += ["-monitor", f"tcp:127.0.0.1:{monitor_port},server,nowait", "-accel", accel,
+                 "-rtc", "base=localtime"]
         self.args = args
         self.proc = None
         self.sock = None

@@ -1,0 +1,27 @@
+[serial] HiveMind OS v0.1 — boot started
+[boot] heap initialized
+[boot] heap allocation probe passed: 66
+[boot] starting hive init
+[hive] new
+[hive] create root
+[hive] write version
+[hive] write status
+[hive] store global
+[hive] done
+[boot] hive init complete
+[boot] instance-uuid=5034b8f9-0617-4c68-9197-9d4087872d3e
+PEV|1|5034b8f9-0617-4c68-9197-9d4087872d3e|1|0|create|kernel|1|kernel-root|-|-|
+PEV|1|5034b8f9-0617-4c68-9197-9d4087872d3e|2|0|write|kernel|1|kernel-root|version|-|len=3;vh=5080ae86
+PEV|1|5034b8f9-0617-4c68-9197-9d4087872d3e|3|0|write|kernel|1|kernel-root|status|-|len=7;vh=147eb74c
+PEV|1|5034b8f9-0617-4c68-9197-9d4087872d3e|4|0|restore|restore|0|-|-|-|nodes=3;blobs=10;prior_lineage=unknown
+PEV|1|5034b8f9-0617-4c68-9197-9d4087872d3e|5|1789|cap_change|shell|0|-|taint_policy|-|policy=block
+PEV|1|5034b8f9-0617-4c68-9197-9d4087872d3e|6|2445|write|shell|6|notes|question|-|len=20;vh=ab7ea968
+PEV|1|5034b8f9-0617-4c68-9197-9d4087872d3e|7|2445|cap_deny|shell|6|notes|tool:ai|-|op=i;reason=tainted_context;tainted_keys=1
+PEV|1|5034b8f9-0617-4c68-9197-9d4087872d3e|8|3200|cap_change|shell|0|-|taint_policy|-|policy=redact
+PEV|1|5034b8f9-0617-4c68-9197-9d4087872d3e|9|3850|write|shell|6|notes|question|-|len=20;vh=ab7ea968
+PEV|1|5034b8f9-0617-4c68-9197-9d4087872d3e|10|3850|read|shell|6|notes|*|-|len=0;purpose=offload_context;sent=n1+n2;redacted=1
+PEV|1|5034b8f9-0617-4c68-9197-9d4087872d3e|11|3850|offload|shell|6|notes|*|10|tool=ai;prompt_len=72;ctx_len=60;keys=2
+PEV|1|5034b8f9-0617-4c68-9197-9d4087872d3e|12|4001|write|model:shell|6|notes|answer|11|len=35;vh=f4a97128
+PEV|1|5034b8f9-0617-4c68-9197-9d4087872d3e|13|4842|marker|shell|0|-|quarantine|-|tainted=1;policy=redact
+PEV|1|5034b8f9-0617-4c68-9197-9d4087872d3e|14|4842|write|shell|6|notes|n3|13|len=0;removed=1;rollback_of=0
+PSTAT|1|5034b8f9-0617-4c68-9197-9d4087872d3e|emitted=14;dropped=0;drained=14;pending=0;next_id=15
