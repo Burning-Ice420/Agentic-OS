@@ -180,7 +180,10 @@ pub fn run() -> ! {
 
         // Sleep until the next interrupt (timer or keyboard) instead of busy
         // spinning. Keeps the CPU cool and the keyboard responsive.
-        x86_64::instructions::hlt();
+        // While a cluster job or run is in progress, keep going instead.
+        if !crate::cluster::busy() {
+            x86_64::instructions::hlt();
+        }
     }
 }
 
@@ -261,6 +264,7 @@ fn execute(line: &str) {
         "thread" | "threads" | "lane" => crate::threads_cmd::cmd_thread(&parts[1..]),
         "route"         => crate::threads_cmd::cmd_route(&parts[1..]),
         "focus"         => crate::threads_cmd::cmd_focus(&parts[1..]),
+        "cluster" | "cl" => crate::cluster_cmd::cmd_cluster(&parts[1..]),
         "activity" | "act" => crate::apps_cmd::cmd_activity(&parts[1..]),
         "taint"         => crate::apps_cmd::cmd_taint(&parts[1..]),
         "quarantine"    => crate::apps_cmd::cmd_quarantine(),
@@ -352,6 +356,7 @@ fn cmd_help(args: &[&str]) {
         }
         Some("apps") | Some("app") | Some("task") | Some("note") | Some("taint") => crate::apps_cmd::help(),
         Some("thread") | Some("threads") | Some("focus") => crate::threads_cmd::help(),
+        Some("cluster") => crate::cluster_cmd::help(),
         Some(other) => {
             println!("  No help topic '{}'. Try: mem  fs  agent  net  sys  sec  apps", other);
         }

@@ -8,7 +8,7 @@ use crate::hive::{self, blob::BlobValue};
 use crate::prov::{self, Actor};
 use alloc::string::ToString;
 
-fn tsc() -> u64 {
+pub fn tsc() -> u64 {
     unsafe { core::arch::x86_64::_rdtsc() }
 }
 

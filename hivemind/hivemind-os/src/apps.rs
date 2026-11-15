@@ -120,6 +120,10 @@ pub fn offload(actor: Actor, mem_id: u64, prompt: &str, only: Option<&[&str]>) -
 
 /// Called by the model driver after an answer is applied.
 pub fn on_model_answer(memory: &str, key: &str, value: &str, tainted: bool) {
+    if memory == "cluster_ai" {
+        crate::cluster::on_ai_answer(key, value);
+        return;
+    }
     if (memory == TASKS || memory == NOTES) && key.ends_with("_thread") {
         crate::threads::on_model_label(memory, key, value);
         return;
@@ -416,6 +420,7 @@ pub fn background(last_tick: &mut u64) {
     crate::net::poll_and_apply();
     crate::llm::poll_and_apply();
     crate::prov::drain(32);
+    crate::cluster::tick();
     let t = crate::interrupts::current_tick();
     if t != *last_tick {
         *last_tick = t;

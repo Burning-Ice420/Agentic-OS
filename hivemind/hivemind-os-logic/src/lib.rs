@@ -12,6 +12,8 @@ pub mod sched_core;
 pub mod apps_core;
 #[path = "../../hivemind-os/src/threads_core.rs"]
 pub mod threads_core;
+#[path = "../../hivemind-os/src/cluster_core.rs"]
+pub mod cluster_core;
 
 #[cfg(test)]
 mod prov_tests {
@@ -470,5 +472,89 @@ mod threads_tests {
         assert!(valid_name("side-gig"));
         assert!(!valid_name("inbox") && !valid_name("Work") && !valid_name("") && !valid_name("averyverylongname"));
         assert!(is_item_key("t12") && is_item_key("n3") && !is_item_key("n3_tags") && !is_item_key("notes"));
+    }
+}
+
+#[cfg(test)]
+mod cluster_tests {
+    use crate::cluster_core::*;
+
+    fn w(name: &str, inflight: u32, ema: u32) -> WorkerView {
+        WorkerView { name: name.into(), in_flight: inflight, alive: true, quarantined: false, ema_ms: ema }
+    }
+
+    #[test]
+    fn kinds_round_trip_and_bounds() {
+        for k in [Kind::Prime { lo: 10, hi: 20 }, Kind::Hash { n: 5, seed: 7 }, Kind::Matmul { n: 8, seed: 1 },
+                  Kind::Collatz { lo: 1, hi: 9 }, Kind::Ai { i: 3 }, Kind::Sum { deps: vec!["a".into(), "b".into()] },
+                  Kind::AiText { text: "report: 5 primes".into() }] {
+            assert_eq!(Kind::decode(&k.encode()), Some(k));
+        }
+        assert_eq!(Kind::decode("hash:999999999999:1"), None);
+        assert_eq!(Kind::decode("matmul:4096:1"), None);
+        assert_eq!(Kind::decode("prime:20:10"), None);
+        assert_eq!(Kind::decode("prime:0:999999999"), None);
+        assert_eq!(Kind::decode("shell:rm -rf"), None);
+    }
+
+    #[test]
+    fn compute_is_correct_and_sliceable() {
+        assert_eq!(run_to_end(&Kind::Prime { lo: 0, hi: 100 }), Some(25));
+        assert_eq!(run_to_end(&Kind::Prime { lo: 0, hi: 10_000 }), Some(1229));
+        // longest chain below 10: 9 (19 steps)
+        assert_eq!(run_to_end(&Kind::Collatz { lo: 1, hi: 10 }), Some(9 * 1000 + 19));
+        // slicing does not change the answer
+        for k in [Kind::Prime { lo: 1000, hi: 50_000 }, Kind::Hash { n: 100_000, seed: 3 }, Kind::Matmul { n: 24, seed: 9 }] {
+            let mut e = Exec::new(k.clone()).unwrap();
+            let r = loop { if let Some(r) = e.step(97) { break r; } };
+            assert_eq!(Some(r), run_to_end(&k));
+        }
+        assert_ne!(run_to_end(&Kind::Matmul { n: 16, seed: 1 }), run_to_end(&Kind::Matmul { n: 16, seed: 2 }));
+    }
+
+    #[test]
+    fn round_robin_ignores_load() {
+        let ws = vec![w("a", 9, 0), w("b", 0, 0)];
+        assert_eq!(pick(Policy::RoundRobin, &ws, 0), Some(0));
+        assert_eq!(pick(Policy::RoundRobin, &ws, 1), Some(1));
+    }
+
+    #[test]
+    fn least_fills_shortest_queue_and_waits_when_full() {
+        let ws = vec![w("a", 1, 0), w("b", 0, 0), w("c", 2, 0)];
+        assert_eq!(pick(Policy::Least, &ws, 0), Some(1));
+        let full = vec![w("a", DEPTH, 0), w("b", DEPTH, 0)];
+        assert_eq!(pick(Policy::Least, &full, 0), None);
+    }
+
+    #[test]
+    fn adaptive_prefers_the_faster_worker() {
+        // b is three times slower; with one job each, a finishes a new job first
+        let ws = vec![w("a", 1, 100), w("b", 1, 300)];
+        assert_eq!(pick(Policy::Adaptive, &ws, 0), Some(0));
+        // a with two queued (300 ms) vs idle slow b (300 ms): tie -> lower index; idle b wins once a has 3
+        let ws = vec![w("a", 3, 100), w("b", 0, 300)];
+        assert_eq!(pick(Policy::Adaptive, &ws, 0), Some(1));
+    }
+
+    #[test]
+    fn dead_and_quarantined_workers_get_nothing() {
+        let mut ws = vec![w("a", 0, 0), w("b", 0, 0)];
+        ws[0].alive = false;
+        ws[1].quarantined = true;
+        for p in [Policy::RoundRobin, Policy::Least, Policy::Adaptive] {
+            assert_eq!(pick(p, &ws, 5), None);
+        }
+    }
+
+    #[test]
+    fn sampling_and_split() {
+        let n = (0..10_000u64).filter(|s| sampled(*s, 10)).count();
+        assert!((800..1200).contains(&n), "{}", n);
+        assert_eq!((0..100u64).filter(|s| sampled(*s, 0)).count(), 0);
+        let r = split_range(0, 10, 3);
+        assert_eq!(r, vec![(0, 3), (3, 6), (6, 10)]);
+        assert_eq!(ema(0, 80), 80);
+        assert_eq!(ema(100, 200), 125);
     }
 }

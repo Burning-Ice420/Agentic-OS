@@ -155,6 +155,20 @@ pub fn init() {
     interrupts::without_interrupts(|| MESH.lock().uart.init());
 }
 
+/// Wake the CPU from `hlt` when mesh bytes arrive: enable the COM2 receive
+/// interrupt and unmask IRQ3 (the catch-all IRQ handler acknowledges it; the
+/// main loop then drains the FIFO). Without this an idle node only notices a
+/// message on the next timer tick, 55 ms later, 16 bytes at a time.
+pub fn enable_rx_wakeup() {
+    use x86_64::instructions::interrupts;
+    interrupts::without_interrupts(|| {
+        unsafe { MESH.lock().uart.ier.write(0x01u8); }
+        let mut pics = crate::interrupts::PICS.lock();
+        let [m1, m2] = unsafe { pics.read_masks() };
+        unsafe { pics.write_masks(m1 & !(1 << 3), m2); }
+    });
+}
+
 /// Send a blob update to all connected peer VMs.
 /// Format on wire: `HMSG|<memory_name>|<key>|<value>\n`
 pub fn send_blob(memory_name: &str, key: &str, value: &str) {
@@ -203,6 +217,10 @@ pub fn poll_and_apply() {
         crate::disk::persist::mark_dirty();
     }
     for msg in msgs {
+        // Cluster traffic (jobs, results, load) goes to the scheduler, not the graph.
+        if crate::cluster::on_mesh(&msg.memory_name, &msg.key, &msg.value) {
+            continue;
+        }
         let val = BlobValue::parse(&msg.value);
         hive::with_hive(|h| {
             use crate::prov::Actor;
