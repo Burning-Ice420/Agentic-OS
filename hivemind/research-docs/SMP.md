@@ -23,12 +23,16 @@ core is slowed down, the free cores take its share. On 8 cores the same work fin
 | one core 60% loaded: static vs dynamic | 11.1 vs 6.4 s: dynamic **1.75x** faster |
 | correctness | 1,024 results, 0 wrong (896 checked against the host) |
 | host check | guest busy time and host CPU time of QEMU agree within about 1% |
+| pinned to 4 separate fast host cores | **3.9x on 4** (98% efficiency) |
 
 ## Questions you will get
-**Why is it 5.7x and not 8x?** The cores were 93 to 99% busy, so they were not waiting
-for each other. But each job ran about 1.35x slower with 8 running at once. The laptop's
-CPU has 4 fast cores with 2 hyperthreads each and 4 slower efficiency cores, so 8 busy
-virtual CPUs share hardware. That is my explanation; I have not tested it by pinning cores.
+**Why is it 5.7x and not 8x?** The laptop, not the kernel, and I tested it by pinning
+QEMU to chosen host cores. On 4 separate fast cores the kernel gets 3.9x on 4 (98%
+efficiency). But the laptop has only 8 physical cores: 4 fast ones and 4 efficiency
+cores that are 1.38x slower per job. Its other 4 "CPUs" are hyperthreads, and two jobs
+sharing one core through hyperthreads run at half speed each, so they add nothing for
+this work. The best this machine can do with 8 compute cores is about 6.5x a fast core.
+(`smp_pinning-20261115-161142.json`)
 
 **Why not let every core run everything, like Linux?** That needs locks around the
 memory graph, the devices and the agents, and per-core scheduling with preemption, which
@@ -107,7 +111,7 @@ Start a guest with several vCPUs: `.\run-os.ps1 -Cpus 4` (or QEMU `-smp 4`).
 | trampoline, core start-up, local APIC, job loop, runs | `hivemind-os/src/smp.rs` |
 | shell commands | `hivemind-os/src/smp_cmd.rs` |
 | wake-up IPI handler | `hivemind-os/src/interrupts.rs` (vector 0xF0) |
-| benchmark | `experiments/smp_bench.py` |
+| benchmark | `experiments/smp_bench.py`, `experiments/smp_pinning.py` |
 | report | `services/cluster/smp_report.py` |
 
 ## Cluster vs multi-core

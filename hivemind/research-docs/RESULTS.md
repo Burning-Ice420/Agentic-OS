@@ -169,11 +169,26 @@ hash and matmul results agree across runs.
 * **Host confirms the guest's numbers.** Guest busy time and host CPU time of the QEMU
   process agree to about 1% on every run (e.g. 31.4 s vs 31.9 s on 1 core; 42.3 vs
   42.8 s on 8). Idle cores are halted: they cost no host CPU.
-* **Why not 8x.** At 8 cores the cores were 93 to 99% busy (not waiting on each other or
-  on the lock), but the same 48 jobs took 42 s of CPU in total instead of 31 s: each job
-  ran about 1.35x slower when 8 ran at once. Likely cause: the host has 4 performance
-  cores with 2 hyperthreads each plus 4 efficiency cores, so 8 busy vCPUs land on shared
-  or slower cores. This explanation is not tested (no core pinning experiment).
+* **Why not 8x: the host, not the kernel** (tested, `smp_pinning-20261115-161142.json`,
+  QEMU pinned to chosen host CPUs, 3 reps, medians, 576 results, 0 wrong). The host has
+  4 performance cores (2 hyperthreads each) and 4 efficiency cores.
+
+  | Pinned to | 48 jobs | time per job |
+  |---|---|---|
+  | 1 core, performance | 32.4 s | 675 ms |
+  | 1 core, efficiency | 44.9 s | 935 ms (1.38x slower) |
+  | 4 cores on 4 separate performance cores | 8.3 s | 668 ms: **3.9x, about 98% efficiency** |
+  | 4 cores on 2 performance cores x 2 hyperthreads | 16.3 s | 1,345 ms: hyperthreads add nothing here |
+  | 4 cores on 4 efficiency cores | 13.1 s | 1,085 ms |
+  | 8 cores on 4 performance cores x 2 hyperthreads | 9.0 s | 1,477 ms: no better than 4 |
+  | 8 cores, one per physical core (4 performance + 4 efficiency) | 5.9 s | 891 ms: best |
+  | 8 cores, unpinned | 7.0 s | 1,126 ms |
+
+  On independent cores the kernel scales almost linearly. This laptop has only 8
+  physical cores, half of them slower, and hyperthreads do not help a division-bound
+  job, so its ceiling for 8 compute cores is about 6.5x a performance core, not 8x.
+  Unpinned results depend on where Windows places the vCPU threads: 5.6 s in the first
+  benchmark, 7.0 s in this session.
 * **Not compared directly:** the same 48 prime jobs took 7.8 s on the 8-VM cluster and
   5.6 s here, but the cluster runs jobs in slices between shell work and pays the mesh,
   so the two numbers measure different designs, not a fair race.
