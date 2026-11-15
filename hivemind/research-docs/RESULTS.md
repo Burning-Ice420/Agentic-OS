@@ -1,4 +1,6 @@
-# Results, all phases (2026-11-14)
+# Results, all phases (2026-11-14, apps, taint and threads added 2026-11-15)
+
+For what these results mean for the project, see OVERVIEW.md.
 
 Hardware: one Windows 11 laptop, Intel CPU with integrated GPU, 15.6 GB RAM, QEMU with
 WHPX. Models: llama3.2:1b and llama3.2:3b on Ollama 0.40.16, running on the CPU. Every
