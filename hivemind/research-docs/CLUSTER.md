@@ -54,8 +54,8 @@ python experiments/cluster_bench.py --live      # boots 9 VMs, runs everything, 
 Open http://127.0.0.1:8765 while it runs. `--smoke` uses 2 workers and one run.
 
 ## Limits
-* Each HiveMind kernel is single-core. The cluster spreads work over host cores by
-  running one VM per core; the kernel does not schedule across cores (no SMP).
+* The cluster runs one core per kernel. A single kernel can now use every core itself
+  (SMP.md); the cluster is for separate trust domains and surviving a machine dying.
 * The mesh is an emulated serial line. Jobs of a second scale well; jobs of a few
   milliseconds do not (1.6x to 2.1x on 8 workers).
 * Sampled checking is probabilistic; 100% checking is certain but runs every job twice.

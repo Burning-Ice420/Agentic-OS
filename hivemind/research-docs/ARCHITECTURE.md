@@ -40,8 +40,9 @@ user-space services own policy analytics, search and measurement.**
 | desktop double buffering | `vga_buffer.rs` | frames were captured mid-repaint |
 | cluster coordinator and worker | `cluster.rs`, `cluster_core.rs`, `cluster_cmd.rs` | placement, checking and quarantine act on results that arrive as peer writes; decisions are provenance events |
 | wake on mesh data (COM2 IRQ3) | `net/mod.rs` | lets idle nodes halt instead of polling, so CPU use reflects real work |
+| multi-core: ACPI MADT, trampoline, INIT/SIPI, local APIC, job loop | `smp.rs`, `smp_core.rs`, `smp_cmd.rs` | the kernel itself places jobs on cores; only core 0 touches the memory graph, so provenance and taint rules are unchanged |
 
-Pure logic (`prov_core`, `cap_core`, `sched_core`, `apps_core`, `threads_core`) uses only `core` + `alloc` and is
+Pure logic (`prov_core`, `cap_core`, `sched_core`, `apps_core`, `threads_core`, `cluster_core`, `smp_core`) uses only `core` + `alloc` and is
 unit-tested on the host by the `hivemind-os-logic` crate, which compiles the kernel's
 own source files.
 

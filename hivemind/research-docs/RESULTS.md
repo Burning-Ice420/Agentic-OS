@@ -1,4 +1,4 @@
-# Results, all phases (2026-11-14, apps, taint and threads added 2026-11-15)
+# Results, all phases (2026-11-14; apps, taint, threads, cluster and multi-core added 2026-11-15)
 
 For what these results mean for the project, see OVERVIEW.md.
 
@@ -149,7 +149,36 @@ was checked against a host-side computation: **0 wrong in the final record**.
 * **Found in the first run:** the coordinator spun at ~98% of a core during runs. It now
   halts and is woken by the mesh receive interrupt: 4 to 21% during runs. Cost: tiny-job
   scaling fell from 2.1x to 1.6x (wake-up latency).
-* Each kernel is single-core; parallelism comes from one VM per host core.
+* These runs used one core per kernel. One kernel can now use every core (next section).
+
+## Multi-core: one kernel, 9 vCPUs (measured, real guest)
+`smp_bench-20261115-140657.json`. Guide: SMP.md. Charts: smp-report.html. One QEMU guest
+(WHPX) with 9 vCPUs: core 0 runs the shell, 8 are compute cores. Same laptop. Scaling and
+imbalance runs repeated 3 times (medians shown). **1,024 job results, 0 wrong**: 896
+checked against a host computation (prime: numpy sieve; Collatz: numpy replay), the 128
+hash and matmul results agree across runs.
+
+| Run | Time | Note |
+|---|---|---|
+| 48 prime jobs on 1 / 2 / 4 / 8 cores | 31.7 / 16.2 / 9.1 / 5.6 s | **5.7x on 8 cores** (71% efficiency); 1.96x on 2, 3.49x on 4 |
+| 16 hash jobs, 1 vs 8 cores | 3.02 vs 0.55 s | 5.5x |
+| 16 Collatz jobs, 1 vs 8 cores | 2.89 vs 0.46 s | 6.3x |
+| 48 tiny matmul jobs, 1 vs 8 cores | 0.98 vs 0.20 s | **5.0x** (the cluster got 1.6x on tiny jobs: its jobs cross a serial link, here they stay in shared memory) |
+| core 1 loaded 60% by a competing load, 8 cores: static vs dynamic | 11.13 vs 6.37 s | dynamic **1.75x** faster; with static, cores 2 to 8 sat idle half the run (46 to 48% busy) |
+
+* **Host confirms the guest's numbers.** Guest busy time and host CPU time of the QEMU
+  process agree to about 1% on every run (e.g. 31.4 s vs 31.9 s on 1 core; 42.3 vs
+  42.8 s on 8). Idle cores are halted: they cost no host CPU.
+* **Why not 8x.** At 8 cores the cores were 93 to 99% busy (not waiting on each other or
+  on the lock), but the same 48 jobs took 42 s of CPU in total instead of 31 s: each job
+  ran about 1.35x slower when 8 ran at once. Likely cause: the host has 4 performance
+  cores with 2 hyperthreads each plus 4 efficiency cores, so 8 busy vCPUs land on shared
+  or slower cores. This explanation is not tested (no core pinning experiment).
+* **Not compared directly:** the same 48 prime jobs took 7.8 s on the 8-VM cluster and
+  5.6 s here, but the cluster runs jobs in slices between shell work and pays the mesh,
+  so the two numbers measure different designs, not a fair race.
+* Compute cores run only the bounded job kinds; the shell, agents and model calls stay on
+  core 0. See SMP.md, Limits.
 
 ## Phase 3: workflow scheduler
 **Simulated** (`phase3_sim-20261114-202956.json`, 10 seeds, 200 workflows; model call

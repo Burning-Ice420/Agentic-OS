@@ -7,7 +7,7 @@
 #   .\run-os.ps1 -Serial               # Pipe COM1 serial log to this terminal
 #   .\run-os.ps1 -Observe              # One command: boot + serial->8080 bridge + observer GUI
 #   .\run-os.ps1 -Accel tcg            # Force pure software emulation
-#   .\run-os.ps1 -Memory 512 -Cpus 2 -DiskMB 8
+#   .\run-os.ps1 -Memory 512 -Cpus 4 -DiskMB 8      # then: cpus, smp bench prime 24
 #   .\run-os.ps1 -QEMU <path>          # Override QEMU executable path
 #
 # Every launched VM is registered under C:\hivemind\instances\ so `hive-cli.ps1`
@@ -21,7 +21,7 @@ param(
     [string]$Model   = "llama3.2:1b",# model the observer bridge feeds to
     [int]   $VMCount = 1,
     [int]   $Memory  = 256,           # RAM per VM, in MiB
-    [int]   $Cpus    = 1,             # vCPUs per VM (the kernel itself is single-core)
+    [int]   $Cpus    = 1,             # vCPUs per VM: core 0 runs the shell, the rest run `smp` jobs
     [int]   $DiskMB  = 1,             # data disk size, in MiB
     [string]$Accel   = "whpx",        # whpx | tcg
     [string]$QEMU    = "C:\msys64\mingw64\bin\qemu-system-x86_64.exe"
@@ -118,7 +118,7 @@ Write-Host ""
 Write-Host "  Resource allocation per VM:" -ForegroundColor White
 Write-Host "    Acceleration : $accelName" -ForegroundColor Gray
 Write-Host "    Memory       : $Memory MiB" -ForegroundColor Gray
-Write-Host "    vCPUs        : $Cpus  (kernel uses 1)" -ForegroundColor Gray
+Write-Host "    vCPUs        : $Cpus  (core 0 = shell, others = compute cores)" -ForegroundColor Gray
 Write-Host "    Data disk    : $DiskMB MiB" -ForegroundColor Gray
 Write-Host ""
 

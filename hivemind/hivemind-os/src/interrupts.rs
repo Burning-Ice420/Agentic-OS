@@ -75,6 +75,10 @@ lazy_static! {
         idt[InterruptIndex::Keyboard.as_usize()].set_handler_fn(keyboard_interrupt_handler);
         idt[InterruptIndex::Mouse.as_usize()].set_handler_fn(mouse_interrupt_handler);
 
+        // Local APIC: wake-up IPIs between cores, and the APIC spurious vector.
+        idt[crate::smp::IPI_VECTOR as usize].set_handler_fn(ipi_handler);
+        idt[crate::smp::SPURIOUS_VECTOR as usize].set_handler_fn(apic_spurious_handler);
+
         idt
     };
 }
@@ -236,3 +240,12 @@ extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptStackFr
             .notify_end_of_interrupt(InterruptIndex::Mouse.as_u8());
     }
 }
+
+/// Wake-up IPI from another core: nothing to do but acknowledge it; the halted
+/// core resumes its loop and looks for work.
+extern "x86-interrupt" fn ipi_handler(_stack_frame: InterruptStackFrame) {
+    crate::smp::eoi();
+}
+
+/// Local APIC spurious interrupt: must not be acknowledged.
+extern "x86-interrupt" fn apic_spurious_handler(_stack_frame: InterruptStackFrame) {}

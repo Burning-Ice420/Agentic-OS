@@ -265,6 +265,7 @@ fn execute(line: &str) {
         "route"         => crate::threads_cmd::cmd_route(&parts[1..]),
         "focus"         => crate::threads_cmd::cmd_focus(&parts[1..]),
         "cluster" | "cl" => crate::cluster_cmd::cmd_cluster(&parts[1..]),
+        "smp" | "cpus" | "cpu" => crate::smp_cmd::cmd_smp(&parts[1..]),
         "activity" | "act" => crate::apps_cmd::cmd_activity(&parts[1..]),
         "taint"         => crate::apps_cmd::cmd_taint(&parts[1..]),
         "quarantine"    => crate::apps_cmd::cmd_quarantine(),
@@ -295,6 +296,7 @@ fn cmd_help(args: &[&str]) {
             println!("  help sys     System: sysinfo, save/load, time, ps, ...");
             println!("  help sec     Provenance (prov), capabilities (cap), sched");
             println!("  help apps    Tasks + reminders, notes + ask, why, taint");
+            println!("  help smp     Multi-core: jobs on every CPU core");
             println!();
             println!("  Quick: hive | mem list | ui (desktop) | sysinfo | halt");
             println!("  PageUp / PageDown scroll this console.");
@@ -357,6 +359,7 @@ fn cmd_help(args: &[&str]) {
         Some("apps") | Some("app") | Some("task") | Some("note") | Some("taint") => crate::apps_cmd::help(),
         Some("thread") | Some("threads") | Some("focus") => crate::threads_cmd::help(),
         Some("cluster") => crate::cluster_cmd::help(),
+        Some("smp") | Some("cpus") => crate::smp_cmd::help(),
         Some(other) => {
             println!("  No help topic '{}'. Try: mem  fs  agent  net  sys  sec  apps", other);
         }

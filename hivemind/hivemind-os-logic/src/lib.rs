@@ -14,6 +14,8 @@ pub mod apps_core;
 pub mod threads_core;
 #[path = "../../hivemind-os/src/cluster_core.rs"]
 pub mod cluster_core;
+#[path = "../../hivemind-os/src/smp_core.rs"]
+pub mod smp_core;
 
 #[cfg(test)]
 mod prov_tests {
@@ -556,5 +558,86 @@ mod cluster_tests {
         assert_eq!(r, vec![(0, 3), (3, 6), (6, 10)]);
         assert_eq!(ema(0, 80), 80);
         assert_eq!(ema(100, 200), 125);
+    }
+}
+
+#[cfg(test)]
+mod smp_tests {
+    use crate::smp_core::*;
+
+    fn fix_checksum(t: &mut Vec<u8>, at: usize) {
+        t[at] = 0;
+        let sum = t.iter().fold(0u8, |a, &x| a.wrapping_add(x));
+        t[at] = 0u8.wrapping_sub(sum);
+    }
+
+    fn header(sig: &[u8; 4], body: &[u8]) -> Vec<u8> {
+        let mut t = Vec::new();
+        t.extend_from_slice(sig);
+        t.extend_from_slice(&((36 + body.len()) as u32).to_le_bytes());
+        t.extend_from_slice(&[0u8; 28]);
+        t.extend_from_slice(body);
+        fix_checksum(&mut t, 9);
+        t
+    }
+
+    fn madt(cpus: &[(u8, u32)]) -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend_from_slice(&0xFEE0_0000u32.to_le_bytes());
+        b.extend_from_slice(&1u32.to_le_bytes());
+        for &(id, flags) in cpus {
+            b.extend_from_slice(&[0, 8, id, id]);
+            b.extend_from_slice(&flags.to_le_bytes());
+        }
+        b.extend_from_slice(&[1, 12, 0, 0, 0, 0, 0xC0, 0xFE, 0, 0, 0, 0]); // an I/O APIC entry, skipped
+        header(b"APIC", &b)
+    }
+
+    #[test]
+    fn madt_lists_enabled_cpus_only() {
+        let m = parse_madt(&madt(&[(0, 1), (1, 1), (2, 0), (3, 1)])).unwrap();
+        assert_eq!(m.apic_ids, vec![0, 1, 3]);
+        assert_eq!(m.lapic_addr, 0xFEE0_0000);
+    }
+
+    #[test]
+    fn madt_rejects_bad_checksum_and_wrong_signature() {
+        let mut t = madt(&[(0, 1)]);
+        t[40] ^= 1;
+        assert!(parse_madt(&t).is_none());
+        assert!(parse_madt(&header(b"FACP", &[0; 8])).is_none());
+    }
+
+    #[test]
+    fn rsdp_found_on_16_byte_boundary_and_root_entries_read() {
+        let mut area = vec![0u8; 256];
+        let mut r = Vec::new();
+        r.extend_from_slice(b"RSD PTR ");
+        r.push(0);
+        r.extend_from_slice(b"BOCHS ");
+        r.push(0); // revision 0: RSDT
+        r.extend_from_slice(&0x0FFE_1234u32.to_le_bytes());
+        fix_checksum(&mut r, 8);
+        area[0x40..0x40 + 20].copy_from_slice(&r);
+        assert_eq!(find_rsdp(&area), Some(Root::Rsdt(0x0FFE_1234)));
+        // a signature off the boundary is ignored
+        let mut off = vec![0u8; 256];
+        off[0x41..0x41 + 20].copy_from_slice(&r);
+        assert_eq!(find_rsdp(&off), None);
+        let mut body = Vec::new();
+        body.extend_from_slice(&0x1000u32.to_le_bytes());
+        body.extend_from_slice(&0x2000u32.to_le_bytes());
+        assert_eq!(root_entries(&header(b"RSDT", &body), false), vec![0x1000, 0x2000]);
+    }
+
+    #[test]
+    fn static_plan_round_robin_and_helpers() {
+        assert_eq!(static_plan(5, 2), vec![vec![0, 2, 4], vec![1, 3]]);
+        assert_eq!(static_plan(2, 4), vec![vec![0], vec![1], vec![], vec![]]);
+        assert_eq!(busy_pct(50, 100), 50);
+        assert_eq!(busy_pct(150, 100), 100);
+        assert_eq!(hog_cycles(400, 60), 600); // 600 of 1000 cycles go to the hog
+        assert_eq!(hog_cycles(400, 0), 0);
+        assert_eq!(Sched::parse("dyn"), Some(Sched::Dynamic));
     }
 }

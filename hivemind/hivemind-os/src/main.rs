@@ -17,6 +17,9 @@ mod threads_core;
 mod cluster;
 mod cluster_cmd;
 mod cluster_core;
+mod smp;
+mod smp_cmd;
+mod smp_core;
 mod allocator;
 mod bench;
 mod boot_anim;
@@ -156,6 +159,10 @@ pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
     // long-running command can starve input.
     x86_64::instructions::interrupts::enable();
     println!("[OK] Interrupts enabled — keyboard & mouse live");
+
+    // --- Other CPU cores (ACPI MADT, INIT/SIPI) ---
+    smp::init(&mut mapper, &mut frame_allocator, boot_info.physical_memory_offset, &boot_info.memory_map);
+    println!("[OK] {} CPU(s) online: core 0 runs the shell, {} run jobs ('cpus')", smp::online(), smp::workers());
 
     shell::run()
 }

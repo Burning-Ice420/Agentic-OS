@@ -421,6 +421,7 @@ pub fn background(last_tick: &mut u64) {
     crate::llm::poll_and_apply();
     crate::prov::drain(32);
     crate::cluster::tick();
+    crate::smp::tick();
     let t = crate::interrupts::current_tick();
     if t != *last_tick {
         *last_tick = t;

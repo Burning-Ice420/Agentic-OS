@@ -157,6 +157,11 @@ Every feature should serve the core idea. Status: **core** (the thesis), **suppo
 | Hive cluster | a coordinator VM's kernel places jobs on up to 8 worker VMs (round robin, least loaded, speed-aware) | results are untrusted peer writes; a sample is re-run on another worker; a worker that lies is quarantined and its work redone; a silent worker's jobs are re-routed | 7.1x on 8 workers; 1.7x better than round robin with a slowed worker; liar caught; VM kill survived; 0 wrong results (CLUSTER.md) |
 | Live dashboard | CPU per VM, throughput, a lane per worker | measured on the host, decisions made in the kernel | `python experiments/cluster_bench.py --live` |
 
+### Many cores (one machine)
+| Feature | What it does | How it uses the core | Result |
+|---|---|---|---|
+| Multi-core kernel | the kernel starts every CPU core (ACPI, INIT/SIPI) and places jobs on them, static or dynamic | core 0 keeps the memory graph, so every rule above still holds; compute cores run only bounded job kinds | 5.7x on 8 cores; dynamic 1.75x faster than static with one core loaded; 1,024 results, 0 wrong (SMP.md) |
+
 ### Foundation (support)
 Memory graph with typed edges (Sync, Signal, Mirror, Dependency); agents as
 edge-triggered rules (they cannot run arbitrary code); mesh between instances (COM2);
@@ -228,9 +233,11 @@ happened: security researchers, red teams, teams building agent platforms. For
 personal use, it is a demonstration that your notes and tasks can use an AI without
 private areas or planted text reaching it.
 
-**Can it use all my CPU cores?** Yes, by running several HiveMind VMs as a cluster: 8
-workers gave a 7.1x speedup on 8 cores, and the coordinator's kernel moves work away
-from a slowed worker. One kernel on its own still uses one core.
+**Can it use all my CPU cores?** Yes, two ways. One kernel starts every core and places
+jobs on them itself: 5.7x on 8 cores, and when one core is loaded the kernel moves work
+to the free ones (1.75x faster than a fixed split). Or several VMs form a cluster (7.1x
+on 8 VMs), which adds result checking and survives a VM dying. Core 0 always keeps the
+shell and the memory graph; the other cores run compute jobs, not agents.
 
 **What does it cost?** Recording is about 1.43x a plain write. Shipping each event over
 the emulated serial port is the expensive part (about 229x, 1.3 ms per event); a
@@ -251,8 +258,9 @@ shared-memory channel would fix it and is not built.
 * Agents inside one instance share one kernel; isolation between workloads comes from
   running separate VMs. Per-agent VM density has not been measured.
 * Phase 3 real runs were inconclusive; several studies are negative results.
-* Each kernel is single-core. The cluster gets parallelism by running one VM per host
-  core; there is no multi-core (SMP) support inside one kernel yet.
+* Multi-core is asymmetric: core 0 runs the shell, agents, devices and the memory graph;
+  the other cores run only bounded compute jobs, to completion, no preemption. It is not
+  a general scheduler like Linux's. Measured only under QEMU, not on bare hardware.
 
 ---
 
@@ -266,6 +274,7 @@ shared-memory channel would fix it and is not built.
 | APPS_AND_TAINT.md | how to use tasks, notes, ask, why, taint, quarantine |
 | THREADS.md | threads, focus, private threads |
 | CLUSTER.md, cluster-report.html | several VMs sharing work: scaling, placement, checking, failover |
+| SMP.md, smp-report.html | one kernel on every CPU core: how cores start, placement, scaling |
 | TRACE_DEMO.md | a provenance chain walked end to end |
 | PROVENANCE_SCHEMA.md | the event format |
 | BENCHMARK_PROTOCOL.md, ENERGY_METHOD.md | how measurements are taken and labelled |

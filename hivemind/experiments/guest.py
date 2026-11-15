@@ -32,7 +32,7 @@ def _key(ch: str) -> str:
 class Guest:
     def __init__(self, name: str, boot: str, accel: str = "whpx,kernel-irqchip=off", mem: str = "64M",
                  monitor_port: int = 5590, com2: str | None = None, com3: str | None = None,
-                 data_disk_mb: int | None = None, keep_data: bool = False):
+                 data_disk_mb: int | None = None, keep_data: bool = False, smp: int = 1):
         self.name = name
         self.log = os.path.join(WORK, f"{name}.log")
         self.port = monitor_port
@@ -47,6 +47,8 @@ class Guest:
             args += ["-drive", f"file={self.data},format=raw,if=ide,index=1"]
         if os.path.exists(self.log):
             os.remove(self.log)
+        if smp > 1:
+            args += ["-smp", str(smp)]
         args += ["-m", mem, "-no-reboot", "-no-shutdown", "-display", "none",
                  "-serial", f"file:{self.log}",
                  "-serial", com2 or "null"]
