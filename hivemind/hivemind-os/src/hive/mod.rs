@@ -196,6 +196,14 @@ impl Hive {
             Some(m) => m.name.clone(),
             None => return WriteResult::NotFound,
         };
+        // Thread definitions decide what is private. A peer must not be able to
+        // overwrite them (ignoring a tainted value afterwards is not enough: the
+        // trusted value would already be gone), so the kernel refuses the write.
+        if actor == Actor::Peer && name == crate::threads::NODE {
+            let ev = prov::emit(Kind::CapDeny, actor, memory_id, &name, key, parent,
+                String::from("op=w;reason=protected_node"));
+            return WriteResult::Denied(ev);
+        }
         let auth = match self.authorize(actor, OP_WRITE, memory_id, &name, key, parent) {
             Ok(a) => a,
             Err(ev) => return WriteResult::Denied(ev),
@@ -238,17 +246,26 @@ impl Hive {
     /// `only` restricts it to some keys; `skip_suffix` drops derived keys
     /// (e.g. `_tags`) so the model sees the source text, not its own output.
     pub fn model_context(&self, memory_id: u64, only: Option<&[&str]>, skip_suffix: Option<&str>,
-                         max_len: usize) -> Context {
+                         max_len: usize) -> (Context, usize) {
+        // Items in private threads never leave the VM, whoever asks.
+        let private = crate::threads::private_keys_in(self, memory_id);
+        let mut withheld = 0;
         let mut entries = Vec::new();
         if let Some(m) = self.memories.get(&memory_id) {
             for (k, b) in &m.blobs {
                 if skip_suffix.map_or(false, |sfx| k.ends_with(sfx)) {
                     continue;
                 }
+                if private.iter().any(|p| p == k) {
+                    if only.map_or(true, |o| o.iter().any(|x| x == k)) && crate::threads_core::is_item_key(k) {
+                        withheld += 1;
+                    }
+                    continue;
+                }
                 entries.push((k.clone(), b.value.display(), b.tainted));
             }
         }
-        build_context(&entries, only, self.taint_policy, max_len)
+        (build_context(&entries, only, self.taint_policy, max_len), withheld)
     }
 
     /// Restore one blob to an earlier version, or remove it if `idx` is None.

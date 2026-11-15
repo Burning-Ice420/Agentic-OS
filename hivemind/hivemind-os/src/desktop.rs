@@ -286,7 +286,8 @@ impl DesktopApp {
             "snooze" => if crate::apps::task_snooze(Actor::Desktop, rest, 5) { (format!("{} snoozed 5 min", rest), Tone::Normal) }
                         else { (format!("no task {}", rest), Tone::Deny) },
             due => match crate::apps::task_add(Actor::Desktop, due, rest) {
-                Ok((k, d)) => (format!("added {} for {}", k, crate::apps_core::fmt_hhmm(d)), Tone::Normal),
+                Ok((k, d, r)) => (format!("added {} for {} -> {}", k, crate::apps_core::fmt_hhmm(d),
+                    crate::threads_cmd::routed_short(&r)), Tone::Normal),
                 Err(e) => (e.to_string(), Tone::Deny),
             },
         };
@@ -300,9 +301,9 @@ impl DesktopApp {
             let (m, t) = crate::apps::offload_msg(&o);
             self.msg[NOTES] = (format!("ask: {}", m), t);
         } else {
-            let (k, o) = crate::apps::note_add(Actor::Desktop, line);
+            let (k, r, o) = crate::apps::note_add(Actor::Desktop, line);
             let (m, t) = crate::apps::offload_msg(&o);
-            self.msg[NOTES] = (format!("saved {}; tags {}", k, m), t);
+            self.msg[NOTES] = (format!("saved {} -> {}; tags {}", k, crate::threads_cmd::routed_short(&r), m), t);
         }
     }
 
@@ -712,8 +713,12 @@ impl DesktopApp {
     fn draw_tasks(&self, y: usize, x: usize, h: usize, w: usize, focused: bool) {
         use crate::apps_core::{fmt_hhmm, Status};
         let now = crate::apps::now_abs();
-        vga_buffer::write_at(y, x, clip("Add: +5 stretch  |  18:30 call home   then: done t1, del t1, snooze t1", w),
-            Color::DarkGray, Color::Black);
+        match crate::threads::focus() {
+            Some(f) => vga_buffer::write_at(y, x, clip(&format!("{}  (other threads' reminders held: {})",
+                crate::threads::focus_label(&f), crate::threads::held().len()), w), Color::Yellow, Color::Black),
+            None => vga_buffer::write_at(y, x, clip("Add: +5 stretch #home  |  18:30 call acme   then: done t1, del t1", w),
+                Color::DarkGray, Color::Black),
+        }
         let tasks = crate::apps::task_list();
         if tasks.is_empty() {
             vga_buffer::write_at(y + 2, x, "No tasks yet.", Color::DarkGray, Color::Black);
@@ -731,7 +736,8 @@ impl DesktopApp {
             } else {
                 fmt_hhmm(t.due)
             };
-            let l = format!("{} {:<4} {:<13} {}{}", mark, k, when, t.text, if *tainted { " [untrusted]" } else { "" });
+            let th = crate::threads::thread_of(crate::apps::TASKS, k);
+            let l = format!("{} {:<4} {:<13} {:<7} {}{}", mark, k, when, th, t.text, if *tainted { " [untrusted]" } else { "" });
             vga_buffer::write_at(y + 1 + i, x, clip(&l, w), col, Color::Black);
         }
         self.draw_input(TASKS, y, x, h, w, focused, "task>", &self.task_in);

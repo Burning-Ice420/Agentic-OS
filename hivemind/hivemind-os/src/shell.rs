@@ -195,6 +195,7 @@ fn execute(line: &str) {
         "mem" | "m" | "blob" | "b" | "link" | "signal" | "s" | "cap"
             | "mkdir" | "touch" | "write" | "rm" | "agent" | "ag"
             | "task" | "todo" | "note" | "quarantine" | "rewind" | "taint"
+            | "thread" | "threads" | "route" | "focus"
     ) {
         crate::disk::persist::mark_dirty();
     }
@@ -257,6 +258,9 @@ fn execute(line: &str) {
         "ask"           => crate::apps_cmd::cmd_ask(&parts[1..]),
         // ── provenance and taint, in the OS ──
         "why"           => crate::apps_cmd::cmd_why(&parts[1..]),
+        "thread" | "threads" | "lane" => crate::threads_cmd::cmd_thread(&parts[1..]),
+        "route"         => crate::threads_cmd::cmd_route(&parts[1..]),
+        "focus"         => crate::threads_cmd::cmd_focus(&parts[1..]),
         "activity" | "act" => crate::apps_cmd::cmd_activity(&parts[1..]),
         "taint"         => crate::apps_cmd::cmd_taint(&parts[1..]),
         "quarantine"    => crate::apps_cmd::cmd_quarantine(),
@@ -347,6 +351,7 @@ fn cmd_help(args: &[&str]) {
             println!("  ui / desktop / notepad      Open the mouse desktop");
         }
         Some("apps") | Some("app") | Some("task") | Some("note") | Some("taint") => crate::apps_cmd::help(),
+        Some("thread") | Some("threads") | Some("focus") => crate::threads_cmd::help(),
         Some(other) => {
             println!("  No help topic '{}'. Try: mem  fs  agent  net  sys  sec  apps", other);
         }

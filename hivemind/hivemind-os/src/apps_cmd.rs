@@ -58,14 +58,18 @@ pub fn cmd_task(args: &[&str]) {
                     match t.status { Status::Open => Tone::Normal, Status::Fired => Tone::Model, Status::Done => Tone::Dim }
                 };
                 let mark = match t.status { Status::Open => "[ ]", Status::Fired => "[!]", Status::Done => "[x]" };
-                line(&alloc::format!("{} {:<4} {:<20} {}{}", mark, k, when, t.text,
+                let th = crate::threads::thread_of(apps::TASKS, &k);
+                line(&alloc::format!("{} {:<4} {:<20} {:<8} {}{}", mark, k, when, th, t.text,
                     if tainted { "  [untrusted]" } else { "" }), tone);
             }
         }
         Some("add") if args.len() >= 3 => {
             let text = args[2..].join(" ");
             match apps::task_add(Actor::Shell, args[1], &text) {
-                Ok((k, due)) => line(&alloc::format!("Added {} at {}: {}", k, fmt_hhmm(due), text), Tone::Normal),
+                Ok((k, due, r)) => {
+                    line(&alloc::format!("Added {} at {}: {}", k, fmt_hhmm(due), text), Tone::Normal);
+                    crate::threads_cmd::show_routed(&k, &r);
+                }
                 Err(e) => line(e, Tone::Deny),
             }
         }
@@ -94,7 +98,8 @@ pub fn cmd_note(args: &[&str]) {
             }
             for (k, text, tags, tainted) in notes {
                 let t = if tainted { Tone::Taint } else { Tone::Normal };
-                line(&alloc::format!("{:<4} {}{}", k, text, if tainted { "  [untrusted]" } else { "" }), t);
+                let th = crate::threads::thread_of(apps::NOTES, &k);
+                line(&alloc::format!("{:<4} {:<8} {}{}", k, th, text, if tainted { "  [untrusted]" } else { "" }), t);
                 if let Some(g) = tags {
                     line(&alloc::format!("     tags: {}", g), Tone::Dim);
                 }
@@ -105,8 +110,9 @@ pub fn cmd_note(args: &[&str]) {
         }
         Some(_) => {
             let text = args.join(" ");
-            let (k, o) = apps::note_add(Actor::Shell, &text);
+            let (k, r, o) = apps::note_add(Actor::Shell, &text);
             println!("  Saved {}.", k);
+            crate::threads_cmd::show_routed(&k, &r);
             let (m, t) = apps::offload_msg(&o);
             line(&alloc::format!("tagging: {}", m), t);
         }
@@ -232,4 +238,5 @@ pub fn help() {
     println!("  taint              untrusted values  taint policy off|block|redact");
     println!("  quarantine         roll back everything derived from untrusted input");
     println!("  rewind <node> <key>   history <node> <key>");
+    println!("  Threads: help thread   (route tasks/notes into work, home, health...)");
 }

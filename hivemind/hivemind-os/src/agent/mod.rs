@@ -317,7 +317,8 @@ pub fn tick_all() {
                         Err(_) => continue,
                     };
                     // The whole node leaves the VM as context, under the taint policy.
-                    let (ctx, ctx_tainted, redacted, sent) = match h.model_context(s.memory_id, None, None, 700) {
+                    let (mctx, withheld) = h.model_context(s.memory_id, None, None, 700);
+                    let (ctx, ctx_tainted, redacted, sent) = match mctx {
                         crate::apps_core::Context::Send { ctx, tainted, redacted, included } => (ctx, tainted, redacted, included.join("+")),
                         crate::apps_core::Context::Blocked { tainted_keys } => {
                             let mut da = String::new();
@@ -336,6 +337,7 @@ pub fn tick_all() {
                     ca.push_str(&sent);
                     if ctx_tainted { ca.push_str(";taint=1"); }
                     if redacted > 0 { let _ = write!(ca, ";redacted={}", redacted); }
+                    if withheld > 0 { let _ = write!(ca, ";private_withheld={}", withheld); }
                     let ctx_ev = h.note_read(actor, s.memory_id, "*", Some(fire_ev), &ca);
                     let task = if prompt.is_empty() { "decide the next action" } else { prompt };
                     let mut oa = String::new();

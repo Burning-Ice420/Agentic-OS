@@ -52,9 +52,12 @@ pub fn now_abs() -> i64 {
 // ── Model calls under the taint policy ────────────────────────────────────────
 
 pub enum Offload {
-    Sent { event: u64, tainted: bool, redacted: usize, included: usize },
+    /// `private` = items left out because they are in a private thread.
+    Sent { event: u64, tainted: bool, redacted: usize, included: usize, private: usize },
     /// Refused because the context held tainted content (policy = block).
     Blocked { event: u64, keys: usize },
+    /// Nothing sent: every item asked for is in a private thread.
+    Private { event: u64 },
     NoDevice,
     NotFound,
 }
@@ -64,7 +67,8 @@ pub enum Offload {
 pub fn offload(actor: Actor, mem_id: u64, prompt: &str, only: Option<&[&str]>) -> Offload {
     let prepared = hive::with_hive(|h| {
         let name = h.memory_name(mem_id)?.to_string();
-        match h.model_context(mem_id, only, None, 700) {
+        let (mctx, withheld) = h.model_context(mem_id, only, None, 700);
+        match mctx {
             Context::Blocked { tainted_keys } => {
                 let mut a = String::new();
                 let _ = write!(a, "op=i;reason=tainted_context;tainted_keys={}", tainted_keys.len());
@@ -77,28 +81,36 @@ pub fn offload(actor: Actor, mem_id: u64, prompt: &str, only: Option<&[&str]>) -
                 prov::record_decision(ev, t);
                 Some(Err((ev, tainted_keys.len())))
             }
+            Context::Send { included, .. } if included.is_empty() && withheld > 0 => {
+                // Everything asked for is in a private thread: nothing leaves the VM.
+                let a = alloc::format!("op=i;reason=private_thread;private_withheld={}", withheld);
+                let ev = prov::emit(Kind::CapDeny, actor, mem_id, &name, "tool:ai", None, a);
+                Some(Err((ev, 0)))
+            }
             Context::Send { ctx, tainted, redacted, included } => {
                 let mut ra = String::from("purpose=offload_context;sent=");
                 ra.push_str(&included.join("+"));
                 if tainted { ra.push_str(";taint=1"); }
                 if redacted > 0 { let _ = write!(ra, ";redacted={}", redacted); }
+                if withheld > 0 { let _ = write!(ra, ";private_withheld={}", withheld); }
                 let rd = h.note_read(actor, mem_id, "*", None, &ra);
                 let mut oa = String::new();
                 let _ = write!(oa, "tool=ai;prompt_len={};ctx_len={};keys={}", prompt.len(), ctx.len(), included.len());
                 if tainted { oa.push_str(";taint=1"); }
                 if !crate::llm::present() { oa.push_str(";device=absent"); }
                 let ev = prov::emit(Kind::Offload, actor, mem_id, &name, "*", Some(rd), oa);
-                Some(Ok((name, ctx, ev, tainted, redacted, included.len())))
+                Some(Ok((name, ctx, ev, tainted, redacted, included.len(), withheld)))
             }
         }
     });
     match prepared {
         None => Offload::NotFound,
+        Some(Err((event, 0))) => Offload::Private { event },
         Some(Err((event, keys))) => Offload::Blocked { event, keys },
-        Some(Ok((name, ctx, event, tainted, redacted, included))) => {
+        Some(Ok((name, ctx, event, tainted, redacted, included, private))) => {
             let agent = match actor { Actor::Agent(id) => Some(id), _ => None };
             if crate::llm::request_tracked(&name, prompt, &ctx, event, agent, tainted) {
-                Offload::Sent { event, tainted, redacted, included }
+                Offload::Sent { event, tainted, redacted, included, private }
             } else {
                 Offload::NoDevice
             }
@@ -108,6 +120,10 @@ pub fn offload(actor: Actor, mem_id: u64, prompt: &str, only: Option<&[&str]>) -
 
 /// Called by the model driver after an answer is applied.
 pub fn on_model_answer(memory: &str, key: &str, value: &str, tainted: bool) {
+    if (memory == TASKS || memory == NOTES) && key.ends_with("_thread") {
+        crate::threads::on_model_label(memory, key, value);
+        return;
+    }
     if memory == NOTES && key == "answer" {
         let mut m = String::from("Answer: ");
         m.push_str(value);
@@ -118,8 +134,8 @@ pub fn on_model_answer(memory: &str, key: &str, value: &str, tainted: bool) {
 
 // ── Tasks and reminders ───────────────────────────────────────────────────────
 
-/// Add a task. `spec` is `+N`, `+Nh` or `HH:MM`. Returns (key, due).
-pub fn task_add(actor: Actor, spec: &str, text: &str) -> Result<(String, i64), &'static str> {
+/// Add a task. `spec` is `+N`, `+Nh` or `HH:MM`. Returns (key, due, routing).
+pub fn task_add(actor: Actor, spec: &str, text: &str) -> Result<(String, i64, crate::threads::Routed), &'static str> {
     let due = parse_due(spec, now_abs()).ok_or("due must be +MIN, +Nh or HH:MM")?;
     if text.trim().is_empty() {
         return Err("empty task");
@@ -132,7 +148,8 @@ pub fn task_add(actor: Actor, spec: &str, text: &str) -> Result<(String, i64), &
         key
     });
     crate::disk::persist::mark_dirty();
-    Ok((key, due))
+    let r = crate::threads::route_new(actor, TASKS, &key);
+    Ok((key, due, r))
 }
 
 /// (key, task, tainted), ordered by due time.
@@ -198,7 +215,14 @@ pub fn reminder_tick() {
             let parent = if last == 0 { None } else { Some(last) };
             // The kernel acts on the task; a task that came from an untrusted
             // peer stays untrusted.
-            let _ = h.write_blob_tx(Actor::Kernel, id, &k, BlobValue::Text(t.encode()), parent, tainted);
+            let ev = match h.write_blob_tx(Actor::Kernel, id, &k, BlobValue::Text(t.encode()), parent, tainted) {
+                WriteResult::Written(e) => e,
+                _ => 0,
+            };
+            // Focus: reminders from other threads are held for the digest.
+            if !crate::threads::gate_reminder(h, id, &k, ev) {
+                continue;
+            }
             let mut m = String::from("Reminder: ");
             m.push_str(&t.text);
             let _ = write!(m, "  (due {})", fmt_hhmm(t.due));
@@ -221,8 +245,9 @@ fn is_note_key(k: &str) -> bool {
     k.len() > 1 && k.starts_with('n') && k[1..].bytes().all(|b| b.is_ascii_digit())
 }
 
-/// Add a note and ask the model to tag it. Returns (key, outcome of the tag request).
-pub fn note_add(actor: Actor, text: &str) -> (String, Offload) {
+/// Add a note, route it to a thread, and ask the model to tag it (refused by
+/// the kernel if the note landed in a private thread).
+pub fn note_add(actor: Actor, text: &str) -> (String, crate::threads::Routed, Offload) {
     let (key, id) = hive::with_hive(|h| {
         let id = h.node_named(actor, NOTES);
         let key = next_key(h.memories[&id].blobs.keys().map(|k| k.as_str()), "n");
@@ -230,11 +255,12 @@ pub fn note_add(actor: Actor, text: &str) -> (String, Offload) {
         (key, id)
     });
     crate::disk::persist::mark_dirty();
+    let routed = crate::threads::route_new(actor, NOTES, &key);
     let mut prompt = String::from("@key:");
     let _ = write!(prompt, "{}_tags Give two or three one-word topic tags for this note, separated by spaces.", key);
     let only = [key.as_str()];
     let o = offload(actor, id, &prompt, Some(&only));
-    (key, o)
+    (key, routed, o)
 }
 
 /// (key, text, tags, tainted), newest last.
@@ -304,7 +330,15 @@ pub fn describe(e: &Event) -> String {
     if e.mem_id != 0 || e.key != "-" {
         let _ = write!(s, " {}/{}", e.mem_name, e.key);
     }
-    if let Some(r) = attr(&e.attrs, "reason") { let _ = write!(s, " DENY:{}", r); }
+    if attr(&e.attrs, "route") == Some("1") {
+        let _ = write!(s, " -> {} ({}", attr(&e.attrs, "thread").unwrap_or("?"), attr(&e.attrs, "reason").unwrap_or("?"));
+        if let Some(w) = attr(&e.attrs, "why") { let _ = write!(s, ": {}", w); }
+        s.push(')');
+    } else if attr(&e.attrs, "held") == Some("1") {
+        let _ = write!(s, " HELD ({} reminder during focus on {})", attr(&e.attrs, "thread").unwrap_or("?"),
+            attr(&e.attrs, "focus").unwrap_or("?"));
+    } else if let Some(r) = attr(&e.attrs, "reason") { let _ = write!(s, " DENY:{}", r); }
+    if let Some(p) = attr(&e.attrs, "private_withheld") { let _ = write!(s, " private_kept={}", p); }
     if attr(&e.attrs, "removed") == Some("1") { s.push_str(" (removed)"); }
     if let Some(r) = attr(&e.attrs, "rollback_of").filter(|r| *r != "0") { let _ = write!(s, " (undid #{})", r); }
     if let Some(r) = attr(&e.attrs, "redacted") { let _ = write!(s, " redacted={}", r); }
@@ -388,7 +422,9 @@ pub fn background(last_tick: &mut u64) {
         // PIT default ~18.2 Hz -> roughly once per second.
         if t % 18 == 0 {
             crate::agent::tick_all();
+            crate::threads::route_unlabelled();
             reminder_tick();
+            crate::threads::focus_tick();
         }
         crate::disk::persist::autosave_tick(t);
     }
@@ -397,14 +433,17 @@ pub fn background(last_tick: &mut u64) {
 /// Human-readable summary of an offload outcome.
 pub fn offload_msg(o: &Offload) -> (String, Tone) {
     match o {
-        Offload::Sent { event, tainted, redacted, included } => {
+        Offload::Sent { event, tainted, redacted, included, private } => {
             let mut s = alloc::format!("sent to model (event #{}, {} item(s))", event, included);
+            if *private > 0 { let _ = write!(s, ", {} private item(s) kept back", private); }
             if *redacted > 0 { let _ = write!(s, ", {} untrusted item(s) left out", redacted); }
             if *tainted { s.push_str(", WARNING: includes untrusted content"); }
             (s, if *tainted { Tone::Taint } else { Tone::Model })
         }
         Offload::Blocked { event, keys } => (alloc::format!(
             "BLOCKED by taint policy: {} untrusted item(s) in context (event #{})", keys, event), Tone::Deny),
+        Offload::Private { event } => (alloc::format!(
+            "kept private: item is in a private thread, nothing sent (event #{})", event), Tone::Dim),
         Offload::NoDevice => ("no model attached (start with -LLM); saved without AI".to_string(), Tone::Dim),
         Offload::NotFound => ("node not found".to_string(), Tone::Deny),
     }

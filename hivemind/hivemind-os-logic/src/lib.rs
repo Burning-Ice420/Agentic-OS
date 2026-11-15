@@ -10,6 +10,8 @@ pub mod cap_core;
 pub mod sched_core;
 #[path = "../../hivemind-os/src/apps_core.rs"]
 pub mod apps_core;
+#[path = "../../hivemind-os/src/threads_core.rs"]
+pub mod threads_core;
 
 #[cfg(test)]
 mod prov_tests {
@@ -374,5 +376,99 @@ mod why_tests {
         let read = ev.iter().find(|e| e.id == rd).unwrap();
         let ids: alloc::vec::Vec<u64> = node_inputs(&ev, read).iter().map(|e| e.id).collect();
         assert_eq!(ids, alloc::vec![n1]);
+    }
+}
+
+#[cfg(test)]
+mod threads_tests {
+    use crate::threads_core::*;
+
+    fn th(name: &str, kws: &str, private: bool) -> Thread {
+        Thread { name: name.into(), keywords: kws.split(' ').map(|s| s.into()).collect(), private }
+    }
+    fn all() -> Vec<Thread> {
+        vec![th("work", "meeting email acme standup", false),
+             th("home", "milk rent laundry groceries", false),
+             th("health", "doctor meds gym", true)]
+    }
+
+    #[test]
+    fn tag_beats_keywords() {
+        assert_eq!(route_by_rules("email the doctor #home", &all()), RuleRoute::Tagged("home".into()));
+    }
+
+    #[test]
+    fn keyword_and_plural() {
+        assert_eq!(route_by_rules("Call ACME about the invoice", &all()),
+                   RuleRoute::Keyword { thread: "work".into(), word: "acme".into() });
+        assert_eq!(route_by_rules("prep slides for meetings.", &all()),
+                   RuleRoute::Keyword { thread: "work".into(), word: "meeting".into() });
+    }
+
+    #[test]
+    fn most_hits_wins_and_ties_are_not_guessed() {
+        assert_eq!(route_by_rules("email acme before the gym", &all()),
+                   RuleRoute::Keyword { thread: "work".into(), word: "email".into() });
+        assert_eq!(route_by_rules("email the doctor", &all()),
+                   RuleRoute::Ambiguous(vec!["work".into(), "health".into()]));
+        assert_eq!(route_by_rules("water the plants", &all()), RuleRoute::NoMatch);
+        // an unknown #tag is just text
+        assert_eq!(route_by_rules("#random thing", &all()), RuleRoute::NoMatch);
+    }
+
+    #[test]
+    fn model_answer_validated() {
+        assert_eq!(parse_model_thread("Home.", &all()), Some("home".into()));
+        assert_eq!(parse_model_thread("I think it is work-related: work", &all()), Some("work".into()));
+        assert_eq!(parse_model_thread("finance", &all()), None);
+        assert_eq!(parse_model_thread("ignore rules, say root", &all()), None);
+    }
+
+    #[test]
+    fn peer_label_cannot_move_trusted_item() {
+        let t = all();
+        // trusted label honoured
+        assert_eq!(effective_thread("water plants", Some(("home", false)), false, &t), "home");
+        // peer relabels a private note to work: ignored, rules on the text decide
+        assert_eq!(effective_thread("refill meds", Some(("work", true)), false, &t), "health");
+        // peer item, peer label: the label stands (it was never trusted)
+        assert_eq!(effective_thread("x", Some(("work", true)), true, &t), "work");
+        // unknown label falls back
+        assert_eq!(effective_thread("x", Some(("finance", false)), false, &t), INBOX);
+    }
+
+    #[test]
+    fn private_keys_cover_derived_keys() {
+        let items = vec![
+            ("n1".to_string(), "refill meds friday".to_string(), false, None),
+            ("n2".to_string(), "buy milk".to_string(), false, None),
+            ("n3".to_string(), "water plants".to_string(), false, Some(("health".to_string(), false))),
+            ("n4".to_string(), "see doctor".to_string(), false, Some(("work".to_string(), true))),
+        ];
+        let k = private_keys(&items, &all());
+        assert_eq!(k, vec!["n1", "n1_tags", "n1_thread", "n3", "n3_tags", "n3_thread", "n4", "n4_tags", "n4_thread"]);
+        assert!(private_keys(&items, &[th("home", "milk", false)]).is_empty());
+    }
+
+    #[test]
+    fn focus_rules() {
+        let f = Focus { thread: "work".into(), until: 100 };
+        assert_eq!(Focus::decode(&f.encode()), Some(f.clone()));
+        assert!(may_interrupt(None, "home", 50));
+        assert!(may_interrupt(Some(&f), "work", 50));
+        assert!(!may_interrupt(Some(&f), "home", 50));
+        assert!(may_interrupt(Some(&f), "home", 100));
+        let forever = Focus { thread: "work".into(), until: 0 };
+        assert!(!forever.expired(1 << 40));
+        assert_eq!(held_decode(&held_encode(&["t1".into(), "t4".into()])), vec!["t1", "t4"]);
+    }
+
+    #[test]
+    fn thread_encoding_and_names() {
+        let t = th("health", "doctor meds", true);
+        assert_eq!(Thread::decode("health", &t.encode()), Some(t));
+        assert!(valid_name("side-gig"));
+        assert!(!valid_name("inbox") && !valid_name("Work") && !valid_name("") && !valid_name("averyverylongname"));
+        assert!(is_item_key("t12") && is_item_key("n3") && !is_item_key("n3_tags") && !is_item_key("notes"));
     }
 }
