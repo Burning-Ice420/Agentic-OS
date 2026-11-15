@@ -52,7 +52,16 @@ An `ai:` offload sends the **whole node** as context. A reporting agent whose ow
 depends only on `summary` still forwards the peer-written `doc` to the model. Taint
 detection makes this visible after the fact; it does not block it. Blocking would need
 either per-key context selection or a policy that refuses tool calls whose ancestors
-include untrusted writes. Neither is implemented.
+include untrusted writes.
+
+Update (2026-11-15): the kernel now tracks taint per value (set by peer writes,
+propagated through agent rules and model answers, persisted across reboot) and applies
+a policy before any model call: `block` refuses a call whose context holds tainted
+values, `redact` leaves them out, `off` sends them and marks the answer. App model calls
+send only the keys they need. `quarantine` rolls tainted values back. The agent `ai:`
+path still sends the whole node, but under the policy. Measured in RESULTS.md,
+"Everyday apps and in-kernel taint tracking". Limits: per value, not per byte; control
+dependence taints conservatively; only mesh input counts as untrusted.
 
 ## Out of scope (not claimed)
 * Agents in this OS cannot execute commands; "agent self-grant" is prevented

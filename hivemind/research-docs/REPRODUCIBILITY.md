@@ -40,6 +40,7 @@ python -m unittest discover -s services/tests -t .
 | Latency predictor vs baselines | `python experiments/phase6_ml.py` | derived |
 | Untrusted content reaching a model tool (MVP) | `python experiments/mvp_injection.py` | measured |
 | Lineage across two guests on one mesh | `python experiments/two_vm_mesh.py` | measured |
+| Everyday apps, taint block/redact/quarantine, two boots | `python experiments/apps_live.py` | measured |
 
 Phases 3 real to 6 and the MVP need Ollama with `llama3.2:1b` and `llama3.2:3b`
 pulled (`ollama list`). Run guest experiments one at a time: each starts by killing
