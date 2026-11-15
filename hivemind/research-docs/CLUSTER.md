@@ -33,8 +33,20 @@ out-of-range or unknown job is refused by the worker.
 
 ## Placement policies
 * `rr`: job i to worker i mod N, decided without looking at load.
-* `least`: the worker with the fewest jobs in flight (at most 2 each).
-* `adaptive`: the worker expected to finish first, from its measured ms per job.
+* `least`: the worker with the fewest jobs in flight per core (at most 2 per core).
+* `adaptive`: the worker expected to finish first, from its measured ms per job and
+  how many jobs are ahead of a new one on each of its cores.
+
+## Workers with several cores
+A worker VM started with several vCPUs (`-smp 5` = shell core + 4 compute cores) says
+how many compute cores it has in every heartbeat. The coordinator then keeps up to 2
+jobs per core in flight on it and places by jobs per core, so a 4-core worker gets
+about four times the work of a 1-core one. On the worker, jobs go straight to its
+compute cores through a shared-memory queue (see SMP.md); core 0 only moves messages.
+Checking, quarantine and failover work exactly as before: they act on results, not
+on how the worker computed them. `cluster` shows each worker's core count. Measured (RESULTS.md, "Cluster workers with
+several cores"): split by cores as intended, 688 results 0 wrong, liar caught, failover
+works; timings of that run may be throttled (laptop on battery).
 
 ## Commands
 ```

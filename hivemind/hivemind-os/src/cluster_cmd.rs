@@ -98,12 +98,12 @@ fn status() {
     if s.workers.is_empty() {
         println!("  No workers yet.");
     }
-    println!("  worker   state        in-flight  done   ms/job  busy  verified");
-    for (name, alive, q, inflight, done, ema, busy, ok, bad) in &s.workers {
+    println!("  worker   cores state        in-flight  done   ms/job  busy  verified");
+    for (name, alive, q, inflight, done, ema, busy, ok, bad, cores) in &s.workers {
         let state = if *q { "QUARANTINED" } else if *alive { "alive" } else { "LOST" };
         let c = if *q || !*alive { Color::LightRed } else { Color::White };
-        say(&alloc::format!("{:<8} {:<12} {:>5} {:>8} {:>8} {:>4}%  {} ok {} bad",
-            name, state, inflight, done, ema, busy / 10, ok, bad), c);
+        say(&alloc::format!("{:<8} {:>5} {:<12} {:>5} {:>8} {:>8} {:>4}%  {} ok {} bad",
+            name, cores, state, inflight, done, ema, busy / 10, ok, bad), c);
     }
     if let Some((name, total, done, inflight, ms, finished, re, mm)) = s.run {
         let bar_w = 30;

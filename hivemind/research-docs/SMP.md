@@ -118,6 +118,8 @@ Start a guest with several vCPUs: `.\run-os.ps1 -Cpus 4` (or QEMU `-smp 4`).
 They solve different problems and stack:
 * **Multi-core** = one kernel, shared memory. Jobs move as pointers, no copying, no
   serial link, so even millisecond jobs scale. One trust domain: the cores share memory.
+* **Both:** a cluster worker VM with several vCPUs hands its jobs to its own compute
+  cores, and the coordinator gives it work in proportion to its cores (CLUSTER.md).
 * **Cluster** = several kernels, no shared memory. Every result crosses a trust boundary,
   so the coordinator checks results and quarantines liars, and survives a VM dying.
 

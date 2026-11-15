@@ -65,14 +65,16 @@ def expected(spec: str):
 
 # ── cluster bring-up ──
 class Cluster:
-    def __init__(self, n_workers: int, ai: bool):
+    def __init__(self, n_workers: int, ai: bool, worker_cpus: int = 1, boot: str | None = None):
         self.names = ["coord"] + [f"w{i}" for i in range(1, n_workers + 1)]
         self.vms, self.bridges, ports, pids = {}, [], {}, {}
         for i, n in enumerate(self.names):
             com2 = 4600 + i
             com3 = f"tcp:127.0.0.1:{4700 + i},server,nowait" if (ai and n != "coord") else None
-            g = Guest(f"cl_{n}", BOOT, mem="64M", monitor_port=5600 + i,
-                      com2=f"tcp:127.0.0.1:{com2},server,nowait", com3=com3).start()
+            multi = worker_cpus > 1 and n != "coord"
+            g = Guest(f"cl_{n}", boot or BOOT, mem="128M" if multi else "64M", monitor_port=5600 + i,
+                      com2=f"tcp:127.0.0.1:{com2},server,nowait", com3=com3,
+                      smp=worker_cpus if multi else 1).start()
             self.vms[n] = g
             ports[n] = com2
             pids[n] = g.proc.pid

@@ -44,6 +44,7 @@ python -m unittest discover -s services/tests -t .
 | Life threads: routing, focus, private threads, two boots | `python experiments/threads_live.py` | measured |
 | Hive cluster: 9 VMs, scaling, placement, checking, failover | `python experiments/cluster_bench.py` (`--live` keeps the dashboard) | measured |
 | Multi-core: one guest with 9 vCPUs, scaling, kinds, imbalance | `python experiments/smp_bench.py`, then `python services/cluster/smp_report.py <record>` | measured |
+| Cluster with multi-core workers: 8 cores split 8x1, 4x2, 2x4, 1x8 | `python experiments/cluster_cores_bench.py` (plug the laptop in) | measured |
 | Multi-core with QEMU pinned to performance, efficiency or hyperthread cores | `python experiments/smp_pinning.py` (logical CPU map is for the i5-13420H; edit it for another host) | measured |
 
 Phases 3 real to 6 and the MVP need Ollama with `llama3.2:1b` and `llama3.2:3b`

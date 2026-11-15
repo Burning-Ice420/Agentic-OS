@@ -195,6 +195,35 @@ hash and matmul results agree across runs.
 * Compute cores run only the bounded job kinds; the shell, agents and model calls stay on
   core 0. See SMP.md, Limits.
 
+## Cluster workers with several cores (measured, real guests)
+`cluster_cores-20261115-173703.json`. The same 8 compute cores split across worker VMs
+four ways; each multi-core worker reports its cores and the coordinator places by jobs
+per core. 48 prime jobs, least loaded, 3 reps (medians); 96 tiny matmul jobs once.
+**688 results checked against the host, 0 wrong accepted.**
+
+| Split | 48 prime jobs | 96 tiny matmul jobs |
+|---|---|---|
+| 8 VMs x 1 core | 7.5 s | 2.86 s |
+| 4 VMs x 2 cores | 7.3 s | 2.51 s |
+| 2 VMs x 4 cores | 8.0 s | 2.56 s |
+| 1 VM x 8 cores | 9.6 s | 1.98 s |
+
+* Work was split by cores as intended (e.g. 4 x 2: 12 jobs each; 2 x 4: 24 each).
+* On the 2 x 4 split, a worker corrupting 1 in 5 results was caught with 25% checking
+  (1 mismatch, its 24 jobs re-run, 48/48 correct). Killing a 4-core worker's VM: its 8
+  in-flight jobs were re-routed and 64/64 were correct.
+* **Not clean, say so:** the kill run took 63 s in the benchmark. An ad-hoc repeat (no
+  record file) took 21.5 s with the same result. During the repeat the laptop turned out
+  to be **on battery** (Balanced plan, 2.1 GHz reported) and each job used about 1.5 s of
+  CPU inside the guest instead of about 0.7 s. When it was unplugged is not known, so the
+  timings in this section may be throttled and are not compared with earlier sections.
+  The 1 VM x 8 cores prime result (9.6 s, about 1.5 s of host CPU per job) matches the
+  pinning test's hyperthread-sharing case, but host placement was not controlled here.
+* What the split shows reliably: correctness, checking and failover hold with
+  multi-core workers, and tiny jobs do best with fewer, bigger VMs (fewer messages
+  per core over the mesh). Rerun plugged in before quoting the prime timings.
+* Records now store whether the host is plugged in (`environment.power`).
+
 ## Phase 3: workflow scheduler
 **Simulated** (`phase3_sim-20261114-202956.json`, 10 seeds, 200 workflows; model call
 durations derived from measured latency). Deadline miss rate, mean ± 95% CI:

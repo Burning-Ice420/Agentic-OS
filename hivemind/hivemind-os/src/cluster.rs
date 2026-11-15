@@ -84,6 +84,10 @@ struct WorkerState {
     queue: VecDeque<(String, Kind)>,
     cur: Option<(String, Exec, u64)>,
     ai: Vec<(String, u64)>,
+    /// Jobs handed to this instance's compute cores: (job id, stream tag).
+    on_cores: Vec<(String, u64)>,
+    /// Compute-core busy cycles at the start of the heartbeat window.
+    cores_busy0: u64,
     done: u64,
     busy_cycles: u64,
     win_start: u64,
@@ -123,7 +127,7 @@ static CL: Mutex<Cluster> = Mutex::new(Cluster {
     seq: 0,
     verify_q: VecDeque::new(),
     verifier: None,
-    w: WorkerState { queue: VecDeque::new(), cur: None, ai: Vec::new(), done: 0, busy_cycles: 0,
+    w: WorkerState { queue: VecDeque::new(), cur: None, ai: Vec::new(), on_cores: Vec::new(), cores_busy0: 0, done: 0, busy_cycles: 0,
                      win_start: 0, last_hb: 0, evil: false },
 });
 
@@ -237,13 +241,15 @@ fn coord_load(worker: &str, value: &str) {
     let q: u32 = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
     let done: u64 = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
     let busy: u32 = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+    // compute cores of the worker (older workers send no field: one)
+    let cores: u32 = it.next().and_then(|s| s.parse().ok()).unwrap_or(1).clamp(1, 64);
     with(|c| {
         if c.role != Role::Coord { return; }
         let now = c.now();
         match c.workers.iter_mut().find(|w| w.view.name == worker) {
-            Some(w) => { w.last_seen = now; w.view.alive = true; w.queued = q; w.done = done; w.busy_permille = busy; }
+            Some(w) => { w.last_seen = now; w.view.alive = true; w.queued = q; w.done = done; w.busy_permille = busy; w.view.slots = cores; }
             None => c.workers.push(Worker {
-                view: WorkerView { name: worker.to_string(), in_flight: 0, alive: true, quarantined: false, ema_ms: 0 },
+                view: WorkerView { name: worker.to_string(), in_flight: 0, alive: true, quarantined: false, ema_ms: 0, slots: cores },
                 last_seen: now, done, busy_permille: busy, queued: q, verified_ok: 0, verified_bad: 0,
                 parked: c.use_n.map_or(false, |n| c.workers.len() >= n),
             }),
@@ -346,11 +352,44 @@ pub fn on_ai_answer(key: &str, value: &str) {
 // ── Worker loop ───────────────────────────────────────────────────────────────
 
 fn worker_tick() {
-    // start the next job if idle
-    let start: Option<(String, Kind)> = with(|c| {
-        if c.w.cur.is_none() { c.w.queue.pop_front() } else { None }
-    });
-    if let Some((id, k)) = start {
+    // With compute cores, every queued job is handed out at once (the cores pull
+    // them); without, one job at a time runs here in slices.
+    let ncores = crate::smp::workers();
+    loop {
+        let start: Option<(String, Kind)> = with(|c| {
+            if ncores > 0 || c.w.cur.is_none() { c.w.queue.pop_front() } else { None }
+        });
+        let (id, k) = match start { Some(x) => x, None => break };
+        if !k.is_ai() && ncores > 0 {
+            match crate::smp::stream_push(k) {
+                Some(tag) => with(|c| c.w.on_cores.push((id, tag))),
+                None => {
+                    let me = with(|c| c.my_name().unwrap_or("?").to_string());
+                    crate::net::send_blob("results", &id, &alloc::format!("{}|refused|0", me));
+                }
+            }
+            continue;
+        }
+        start_job(id, k);
+        if ncores == 0 { break; }
+    }
+    // results from the compute cores
+    for (tag, r, ms) in crate::smp::stream_done() {
+        let msg = with(|c| {
+            let pos = c.w.on_cores.iter().position(|(_, t)| *t == tag)?;
+            let (id, _) = c.w.on_cores.remove(pos);
+            c.w.done += 1;
+            let r = r?;
+            let r = if c.w.evil && c.w.done % 5 == 0 { r ^ 1 } else { r };
+            Some((id, alloc::format!("{}|{}|{}", c.my_name().unwrap_or("?"), r, ms)))
+        });
+        if let Some((id, v)) = msg { crate::net::send_blob("results", &id, &v); }
+    }
+    worker_slice_and_heartbeat(ncores);
+}
+
+fn start_job(id: String, k: Kind) {
+    {
         if k.is_ai() {
             let prompt = match &k { Kind::Ai { i } => ai_prompt(*i), Kind::AiText { text } => text.clone(), _ => String::new() };
             start_ai(&id, &prompt);
@@ -358,6 +397,9 @@ fn worker_tick() {
             with(|c| { let t = c.now(); c.w.cur = Some((id, e, t)); });
         }
     }
+}
+
+fn worker_slice_and_heartbeat(ncores: usize) {
     // run one slice
     let finished = with(|c| {
         let slice = c.tsc_per_ms * SLICE_MS;
@@ -386,13 +428,21 @@ fn worker_tick() {
         let now = c.now();
         if now - c.w.last_hb < HEARTBEAT_MS && c.w.last_hb != 0 { return None; }
         let win = (now - c.w.win_start).max(1);
-        let busy = (c.w.busy_cycles / c.tsc_per_ms.max(1)).min(win);
-        let permille = (busy * 1000 / win) as u32;
+        let permille = if ncores > 0 {
+            // average over the compute cores
+            let total = crate::smp::busy_cycles();
+            let busy = total.saturating_sub(c.w.cores_busy0) / c.tsc_per_ms.max(1);
+            c.w.cores_busy0 = total;
+            (busy.min(win * ncores as u64) * 1000 / (win * ncores as u64)) as u32
+        } else {
+            let busy = (c.w.busy_cycles / c.tsc_per_ms.max(1)).min(win);
+            (busy * 1000 / win) as u32
+        };
         c.w.busy_cycles = 0;
         c.w.win_start = now;
         c.w.last_hb = now;
-        let q = c.w.queue.len() + c.w.cur.is_some() as usize + c.w.ai.len();
-        Some((c.my_name()?.to_string(), alloc::format!("{}|{}|{}", q, c.w.done, permille)))
+        let q = c.w.queue.len() + c.w.cur.is_some() as usize + c.w.ai.len() + c.w.on_cores.len();
+        Some((c.my_name()?.to_string(), alloc::format!("{}|{}|{}|{}", q, c.w.done, permille, ncores.max(1))))
     });
     if let Some((me, v)) = hb {
         crate::net::send_blob("load", &me, &v);
@@ -763,7 +813,7 @@ pub struct Status {
     pub role: Role,
     pub policy: Policy,
     pub verify: u32,
-    pub workers: Vec<(String, bool, bool, u32, u64, u32, u32, u32, u32)>,
+    pub workers: Vec<(String, bool, bool, u32, u64, u32, u32, u32, u32, u32)>,
     pub run: Option<(String, usize, usize, usize, u64, bool, u32, u32)>,
     pub worker_self: Option<(usize, u64, bool)>,
 }
@@ -776,7 +826,7 @@ pub fn status() -> Status {
             policy: c.policy,
             verify: c.verify_pct,
             workers: c.workers.iter().map(|w| (w.view.name.clone(), w.view.alive && !w.parked, w.view.quarantined,
-                w.view.in_flight, w.done, w.view.ema_ms, w.busy_permille, w.verified_ok, w.verified_bad)).collect(),
+                w.view.in_flight, w.done, w.view.ema_ms, w.busy_permille, w.verified_ok, w.verified_bad, w.view.slots)).collect(),
             run: c.run.as_ref().map(|r| {
                 let done = c.jobs.iter().filter(|j| j.state == JState::Done).count();
                 let inflight = c.jobs.iter().filter(|j| j.state == JState::Assigned).count();
@@ -784,7 +834,7 @@ pub fn status() -> Status {
                 (r.name.clone(), c.jobs.len(), done, inflight, el, r.t_end != 0, r.reassigned, r.mismatches)
             }),
             worker_self: match c.role {
-                Role::Worker(_) => Some((c.w.queue.len() + c.w.cur.is_some() as usize + c.w.ai.len(), c.w.done, c.w.evil)),
+                Role::Worker(_) => Some((c.w.queue.len() + c.w.cur.is_some() as usize + c.w.ai.len() + c.w.on_cores.len(), c.w.done, c.w.evil)),
                 _ => None,
             },
         }

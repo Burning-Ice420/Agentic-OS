@@ -419,17 +419,40 @@ struct Pool {
     runs: u64,
     sched: Sched,
     use_n: usize,
+    /// Streamed jobs (the cluster worker feeds these as they arrive): (tag, kind).
+    sq: VecDeque<(u64, Kind)>,
+    /// Finished streamed jobs: (tag, result, ms).
+    sdone: VecDeque<(u64, Option<u64>, u64)>,
+    stag: u64,
+    srunning: usize,
 }
 
-static POOL: Mutex<Pool> = Mutex::new(Pool { run: None, runs: 0, sched: Sched::Dynamic, use_n: 0 });
+static POOL: Mutex<Pool> = Mutex::new(Pool { run: None, runs: 0, sched: Sched::Dynamic, use_n: 0,
+    sq: VecDeque::new(), sdone: VecDeque::new(), stag: 0, srunning: 0 });
+
+/// What a core took: a job of the current run, or a streamed job.
+enum Took {
+    Run(u64, usize),
+    Stream(u64),
+}
 
 fn ms_since(t0: u64, t: u64) -> u64 {
     t.saturating_sub(t0) / tsc_per_ms()
 }
 
-/// Take the next job for core `cpu` (cores 1..=N of the run take part).
-fn take(cpu: usize) -> Option<(u64, usize, Kind)> {
+/// Take the next job for core `cpu`: from the current run (cores 1..=N of the
+/// run take part), otherwise from the stream.
+fn take(cpu: usize) -> Option<(Took, Kind)> {
     let mut p = POOL.lock();
+    if let Some((id, idx, k)) = take_run(&mut p, cpu) {
+        return Some((Took::Run(id, idx), k));
+    }
+    let (tag, k) = p.sq.pop_front()?;
+    p.srunning += 1;
+    Some((Took::Stream(tag), k))
+}
+
+fn take_run(p: &mut Pool, cpu: usize) -> Option<(u64, usize, Kind)> {
     let run = p.run.as_mut()?;
     if cpu > run.cores || run.left == 0 { return None; }
     let idx = match run.sched {
@@ -466,7 +489,18 @@ fn finish(cpu: usize, run_id: u64, idx: usize, result: Option<u64>) {
     if last { wake(0); }
 }
 
+fn finish_stream(cpu: usize, tag: u64, result: Option<u64>, ms: u64) {
+    {
+        let mut p = POOL.lock();
+        p.srunning -= 1;
+        p.sdone.push_back((tag, result, ms));
+    }
+    JOBS_DONE[cpu].fetch_add(1, Ordering::Relaxed);
+    wake(0);
+}
+
 /// Run one job on this core, burning the configured hog share alongside it.
+/// `run_id` 0 = a streamed job (not cancellable).
 fn compute(cpu: usize, run_id: u64, kind: Kind) -> Option<u64> {
     let mut e = Exec::new(kind)?;
     loop {
@@ -482,7 +516,7 @@ fn compute(cpu: usize, run_id: u64, kind: Kind) -> Option<u64> {
             HOG_CYC[cpu].fetch_add(tsc() - h0, Ordering::Relaxed);
         }
         if r.is_some() { return r; }
-        if cancelled(run_id) { return None; }
+        if run_id != 0 && cancelled(run_id) { return None; }
     }
 }
 
@@ -498,11 +532,20 @@ fn ap_loop(cpu: usize) -> ! {
     loop {
         interrupts::disable();
         match take(cpu) {
-            Some((run_id, idx, kind)) => {
+            Some((took, kind)) => {
                 interrupts::enable();
                 STATE[cpu].store(WORKING, Ordering::Relaxed);
-                let r = compute(cpu, run_id, kind);
-                finish(cpu, run_id, idx, r);
+                match took {
+                    Took::Run(run_id, idx) => {
+                        let r = compute(cpu, run_id, kind);
+                        finish(cpu, run_id, idx, r);
+                    }
+                    Took::Stream(tag) => {
+                        let t0 = tsc();
+                        let r = compute(cpu, 0, kind);
+                        finish_stream(cpu, tag, r, ms_since(t0, tsc()));
+                    }
+                }
             }
             None => {
                 STATE[cpu].store(IDLE, Ordering::Relaxed);
@@ -652,4 +695,35 @@ pub fn last_jobs(n: usize) -> Vec<(usize, u8, String, Option<u64>, u64)> {
             .map(|(i, j)| (i, j.core, j.kind.encode(), j.result, j.end_ms.saturating_sub(j.start_ms))).collect(),
         None => Vec::new(),
     }
+}
+
+// ── Streamed jobs (used by a cluster worker) ──────────────────────────────────
+
+/// Queue one compute job for any free core. Returns its tag, or None when there
+/// are no compute cores or the kind is not a compute job.
+pub fn stream_push(kind: Kind) -> Option<u64> {
+    if workers() == 0 || !matches!(kind, Kind::Prime { .. } | Kind::Hash { .. } | Kind::Matmul { .. } | Kind::Collatz { .. }) {
+        return None;
+    }
+    let tag = {
+        let mut p = POOL.lock();
+        p.stag += 1;
+        let t = p.stag;
+        p.sq.push_back((t, kind));
+        t
+    };
+    for c in 1..=workers() {
+        if STATE[c].load(Ordering::Relaxed) == IDLE { wake(c); }
+    }
+    Some(tag)
+}
+
+/// Finished streamed jobs since the last call: (tag, result, ms).
+pub fn stream_done() -> Vec<(u64, Option<u64>, u64)> {
+    POOL.lock().sdone.drain(..).collect()
+}
+
+/// Busy cycles of all compute cores so far (work plus simulated competing load).
+pub fn busy_cycles() -> u64 {
+    (1..online()).map(|i| WORK_CYC[i].load(Ordering::Relaxed) + HOG_CYC[i].load(Ordering::Relaxed)).sum()
 }

@@ -109,7 +109,8 @@ class Hub:
                 dst = [self.coord]
             elif node == "load" and len(parts) >= 6:
                 self.load[parts[2]] = {"t": t, "queued": _int(parts[3]), "done": _int(parts[4]),
-                                       "busy": _int(parts[5]) / 10.0}
+                                       "busy": _int(parts[5]) / 10.0,
+                                       "cores": _int(parts[6]) if len(parts) > 6 else 1}
                 dst = [self.coord]
             else:
                 dst = [n for n in self.socks if n != src]

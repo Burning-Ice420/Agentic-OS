@@ -26,6 +26,19 @@ def _run(cmd):
         return f"<unavailable: {type(e).__name__}>"
 
 
+def _power():
+    """Laptop power state: throttling on battery changes timings."""
+    try:
+        import psutil
+        b = psutil.sensors_battery()
+        if b is None:
+            return {"battery": None}
+        return {"plugged_in": b.power_plugged, "battery_percent": b.percent,
+                "plan": _run(["powercfg", "/getactivescheme"])}
+    except Exception as e:  # noqa: BLE001
+        return {"unavailable": type(e).__name__}
+
+
 def environment() -> dict:
     cpu = _run(["powershell", "-NoProfile", "-Command", "(Get-CimInstance Win32_Processor).Name"])
     ram = _run(["powershell", "-NoProfile", "-Command",
@@ -41,6 +54,7 @@ def environment() -> dict:
         "rustc_nightly": _run(["rustc", "+nightly", "--version"]),
         "ollama": _run(["ollama", "--version"]),
         "utc": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+        "power": _power(),
     }
 
 

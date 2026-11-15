@@ -1,0 +1,776 @@
+{
+  "experiment": "cluster_cores",
+  "environment": {
+    "git_commit": "ed883ac0cc826d48f5103465acce14e946ae45d6",
+    "git_dirty": true,
+    "os": "Windows-11-10.0.26300-SP0",
+    "cpu": "13th Gen Intel(R) Core(TM) i5-13420H",
+    "ram_gb": "15.6",
+    "python": "3.14.5",
+    "qemu": "QEMU emulator version 10.2.2",
+    "rustc_nightly": "<unavailable: FileNotFoundError>",
+    "ollama": "ollama version is 0.40.16",
+    "utc": "2026-11-15T12:07:08+00:00"
+  },
+  "config": {
+    "splits": [
+      [
+        8,
+        1
+      ],
+      [
+        4,
+        2
+      ],
+      [
+        2,
+        4
+      ],
+      [
+        1,
+        8
+      ]
+    ],
+    "reps": 3,
+    "policy": "least"
+  },
+  "seed": null,
+  "repetitions": 3,
+  "warmup": "none",
+  "failed_runs": [],
+  "metrics": {
+    "summary": {
+      "label": "measured",
+      "value": {
+        "8 VMs x 1 cores": {
+          "median_ms": 7531,
+          "all_ms": [
+            7276,
+            7543,
+            7531
+          ],
+          "cores_reported": {
+            "w5": 1,
+            "w3": 1,
+            "w4": 1,
+            "w1": 1,
+            "w8": 1,
+            "w2": 1,
+            "w7": 1,
+            "w6": 1
+          }
+        },
+        "4 VMs x 2 cores": {
+          "median_ms": 7291,
+          "all_ms": [
+            7290,
+            7291,
+            7549
+          ],
+          "cores_reported": {
+            "w1": 2,
+            "w2": 2,
+            "w3": 2,
+            "w4": 2
+          }
+        },
+        "2 VMs x 4 cores": {
+          "median_ms": 8045,
+          "all_ms": [
+            7902,
+            8045,
+            8199
+          ],
+          "cores_reported": {
+            "w1": 4,
+            "w2": 4
+          }
+        },
+        "1 VMs x 8 cores": {
+          "median_ms": 9564,
+          "all_ms": [
+            9699,
+            9512,
+            9564
+          ],
+          "cores_reported": {
+            "w1": 8
+          }
+        }
+      }
+    },
+    "correctness": {
+      "label": "measured",
+      "value": {
+        "checked": 688,
+        "wrong": 0
+      }
+    },
+    "runs": {
+      "label": "measured",
+      "value": [
+        {
+          "label": "prime48 rep=0",
+          "cmds": [
+            "cluster run prime 48"
+          ],
+          "finished": true,
+          "hub_t": [
+            169.45780340000056,
+            176.55408720000014
+          ],
+          "name": "prime",
+          "policy": "least",
+          "jobs": "48",
+          "makespan_ms": "7276",
+          "per_worker": "w5:6+w3:6+w4:6+w1:6+w8:6+w2:6+w7:6+w6:6",
+          "reassigned": "0",
+          "verified": "0",
+          "mismatches": "0",
+          "split": "8 VMs x 1 cores",
+          "correctness": {
+            "checked": 48,
+            "wrong": 0,
+            "accepted": 48
+          },
+          "window": [
+            168.69006799999988,
+            175.56951909999952
+          ],
+          "cpu_avg": {
+            "coord": 10.1,
+            "w1": 96.2,
+            "w2": 95.5,
+            "w3": 95.7,
+            "w4": 97.2,
+            "w5": 95.3,
+            "w6": 96.7,
+            "w7": 97.2,
+            "w8": 94.8,
+            "host": 79.0
+          }
+        },
+        {
+          "label": "prime48 rep=1",
+          "cmds": [
+            "cluster run prime 48"
+          ],
+          "finished": true,
+          "hub_t": [
+            208.63306569999986,
+            215.72908649999954
+          ],
+          "name": "prime",
+          "policy": "least",
+          "jobs": "48",
+          "makespan_ms": "7543",
+          "per_worker": "w5:6+w3:6+w4:6+w1:6+w8:6+w2:6+w7:6+w6:6",
+          "reassigned": "0",
+          "verified": "0",
+          "mismatches": "0",
+          "split": "8 VMs x 1 cores",
+          "correctness": {
+            "checked": 48,
+            "wrong": 0,
+            "accepted": 48
+          },
+          "window": [
+            208.0186580999998,
+            214.98939980000068
+          ],
+          "cpu_avg": {
+            "coord": 12.3,
+            "w1": 92.2,
+            "w2": 92.4,
+            "w3": 91.3,
+            "w4": 92.7,
+            "w5": 92.9,
+            "w6": 92.2,
+            "w7": 91.8,
+            "w8": 92.2,
+            "host": 75.5
+          }
+        },
+        {
+          "label": "prime48 rep=2",
+          "cmds": [
+            "cluster run prime 48"
+          ],
+          "finished": true,
+          "hub_t": [
+            245.2180026999995,
+            252.3168071
+          ],
+          "name": "prime",
+          "policy": "least",
+          "jobs": "48",
+          "makespan_ms": "7531",
+          "per_worker": "w5:6+w3:6+w4:6+w1:6+w8:6+w2:6+w7:6+w6:6",
+          "reassigned": "0",
+          "verified": "0",
+          "mismatches": "0",
+          "split": "8 VMs x 1 cores",
+          "correctness": {
+            "checked": 48,
+            "wrong": 0,
+            "accepted": 48
+          },
+          "window": [
+            244.6004842000002,
+            251.58374059999915
+          ],
+          "cpu_avg": {
+            "coord": 12.2,
+            "w1": 92.2,
+            "w2": 91.5,
+            "w3": 91.5,
+            "w4": 92.9,
+            "w5": 90.6,
+            "w6": 91.5,
+            "w7": 92.0,
+            "w8": 92.0,
+            "host": 76.4
+          }
+        },
+        {
+          "label": "matmul96",
+          "cmds": [
+            "cluster run matmul 96"
+          ],
+          "finished": true,
+          "hub_t": [
+            283.2232922000003,
+            285.25663480000003
+          ],
+          "name": "matmul",
+          "policy": "least",
+          "jobs": "96",
+          "makespan_ms": "2864",
+          "per_worker": "w5:13+w3:13+w4:13+w1:12+w8:12+w2:11+w7:11+w6:11",
+          "reassigned": "0",
+          "verified": "0",
+          "mismatches": "0",
+          "split": "8 VMs x 1 cores",
+          "correctness": {
+            "checked": 0,
+            "wrong": 0,
+            "accepted": 96
+          },
+          "window": [
+            282.6253166000006,
+            284.78773009999895
+          ],
+          "cpu_avg": {
+            "coord": 79.6,
+            "w1": 17.9,
+            "w2": 17.9,
+            "w3": 20.3,
+            "w4": 20.3,
+            "w5": 19.5,
+            "w6": 18.7,
+            "w7": 16.4,
+            "w8": 16.4,
+            "host": 43.5
+          }
+        },
+        {
+          "label": "prime48 rep=0",
+          "cmds": [
+            "cluster run prime 48"
+          ],
+          "finished": true,
+          "hub_t": [
+            156.19520209999973,
+            163.28744389999883
+          ],
+          "name": "prime",
+          "policy": "least",
+          "jobs": "48",
+          "makespan_ms": "7290",
+          "per_worker": "w1:12+w2:12+w3:12+w4:12",
+          "reassigned": "0",
+          "verified": "0",
+          "mismatches": "0",
+          "split": "4 VMs x 2 cores",
+          "correctness": {
+            "checked": 48,
+            "wrong": 0,
+            "accepted": 48
+          },
+          "window": [
+            155.38255799999934,
+            162.2735321
+          ],
+          "cpu_avg": {
+            "coord": 12.7,
+            "w1": 183.9,
+            "w2": 183.4,
+            "w3": 184.3,
+            "w4": 183.4,
+            "host": 71.1
+          }
+        },
+        {
+          "label": "prime48 rep=1",
+          "cmds": [
+            "cluster run prime 48"
+          ],
+          "finished": true,
+          "hub_t": [
+            192.82222619999993,
+            198.89590769999995
+          ],
+          "name": "prime",
+          "policy": "least",
+          "jobs": "48",
+          "makespan_ms": "7291",
+          "per_worker": "w1:12+w2:12+w3:12+w4:12",
+          "reassigned": "0",
+          "verified": "0",
+          "mismatches": "0",
+          "split": "4 VMs x 2 cores",
+          "correctness": {
+            "checked": 48,
+            "wrong": 0,
+            "accepted": 48
+          },
+          "window": [
+            192.0255846,
+            198.84103770000002
+          ],
+          "cpu_avg": {
+            "coord": 10.8,
+            "w1": 195.4,
+            "w2": 196.8,
+            "w3": 194.4,
+            "w4": 197.8,
+            "host": 73.5
+          }
+        },
+        {
+          "label": "prime48 rep=2",
+          "cmds": [
+            "cluster run prime 48"
+          ],
+          "finished": true,
+          "hub_t": [
+            228.3915507999991,
+            235.48528479999914
+          ],
+          "name": "prime",
+          "policy": "least",
+          "jobs": "48",
+          "makespan_ms": "7549",
+          "per_worker": "w1:12+w2:12+w3:12+w4:12",
+          "reassigned": "0",
+          "verified": "0",
+          "mismatches": "0",
+          "split": "4 VMs x 2 cores",
+          "correctness": {
+            "checked": 48,
+            "wrong": 0,
+            "accepted": 48
+          },
+          "window": [
+            227.81668089999948,
+            234.7486114000003
+          ],
+          "cpu_avg": {
+            "coord": 12.7,
+            "w1": 186.9,
+            "w2": 186.9,
+            "w3": 187.2,
+            "w4": 187.4,
+            "host": 74.9
+          }
+        },
+        {
+          "label": "matmul96",
+          "cmds": [
+            "cluster run matmul 96"
+          ],
+          "finished": true,
+          "hub_t": [
+            266.3909038999991,
+            268.4314624999988
+          ],
+          "name": "matmul",
+          "policy": "least",
+          "jobs": "96",
+          "makespan_ms": "2509",
+          "per_worker": "w1:24+w2:25+w3:24+w4:23",
+          "reassigned": "0",
+          "verified": "0",
+          "mismatches": "0",
+          "split": "4 VMs x 2 cores",
+          "correctness": {
+            "checked": 0,
+            "wrong": 0,
+            "accepted": 96
+          },
+          "window": [
+            265.73365939999894,
+            267.63891129999865
+          ],
+          "cpu_avg": {
+            "coord": 84.2,
+            "w1": 55.4,
+            "w2": 50.7,
+            "w3": 51.5,
+            "w4": 46.0,
+            "host": 45.9
+          }
+        },
+        {
+          "label": "prime48 rep=0",
+          "cmds": [
+            "cluster run prime 48"
+          ],
+          "finished": true,
+          "hub_t": [
+            150.09927830000015,
+            157.18622510000023
+          ],
+          "name": "prime",
+          "policy": "least",
+          "jobs": "48",
+          "makespan_ms": "7902",
+          "per_worker": "w1:24+w2:24",
+          "reassigned": "0",
+          "verified": "0",
+          "mismatches": "0",
+          "split": "2 VMs x 4 cores",
+          "correctness": {
+            "checked": 48,
+            "wrong": 0,
+            "accepted": 48
+          },
+          "window": [
+            149.15057590000106,
+            156.79981000000043
+          ],
+          "cpu_avg": {
+            "coord": 10.7,
+            "w1": 369.5,
+            "w2": 369.6,
+            "host": 65.3
+          }
+        },
+        {
+          "label": "prime48 rep=1",
+          "cmds": [
+            "cluster run prime 48"
+          ],
+          "finished": true,
+          "hub_t": [
+            186.6892656,
+            193.77082950000113
+          ],
+          "name": "prime",
+          "policy": "least",
+          "jobs": "48",
+          "makespan_ms": "8045",
+          "per_worker": "w1:24+w2:24",
+          "reassigned": "0",
+          "verified": "0",
+          "mismatches": "0",
+          "split": "2 VMs x 4 cores",
+          "correctness": {
+            "checked": 48,
+            "wrong": 0,
+            "accepted": 48
+          },
+          "window": [
+            185.9517175000001,
+            193.5848932000008
+          ],
+          "cpu_avg": {
+            "coord": 12.3,
+            "w1": 374.6,
+            "w2": 373.8,
+            "host": 73.5
+          }
+        },
+        {
+          "label": "prime48 rep=2",
+          "cmds": [
+            "cluster run prime 48"
+          ],
+          "finished": true,
+          "hub_t": [
+            223.27250769999955,
+            230.3694445000001
+          ],
+          "name": "prime",
+          "policy": "least",
+          "jobs": "48",
+          "makespan_ms": "8199",
+          "per_worker": "w1:24+w2:24",
+          "reassigned": "0",
+          "verified": "0",
+          "mismatches": "0",
+          "split": "2 VMs x 4 cores",
+          "correctness": {
+            "checked": 48,
+            "wrong": 0,
+            "accepted": 48
+          },
+          "window": [
+            222.44097090000105,
+            230.27667620000102
+          ],
+          "cpu_avg": {
+            "coord": 11.0,
+            "w1": 389.2,
+            "w2": 387.1,
+            "host": 68.6
+          }
+        },
+        {
+          "label": "matmul96",
+          "cmds": [
+            "cluster run matmul 96"
+          ],
+          "finished": true,
+          "hub_t": [
+            261.2633158999997,
+            263.3055989000004
+          ],
+          "name": "matmul",
+          "policy": "least",
+          "jobs": "96",
+          "makespan_ms": "2563",
+          "per_worker": "w1:48+w2:48",
+          "reassigned": "0",
+          "verified": "0",
+          "mismatches": "0",
+          "split": "2 VMs x 4 cores",
+          "correctness": {
+            "checked": 0,
+            "wrong": 0,
+            "accepted": 96
+          },
+          "window": [
+            260.5593597999996,
+            262.5765467000001
+          ],
+          "cpu_avg": {
+            "coord": 83.5,
+            "w1": 95.9,
+            "w2": 105.3,
+            "host": 50.5
+          }
+        },
+        {
+          "label": "evil w2, check 25%",
+          "cmds": [
+            "cluster reset",
+            "cluster verify 25",
+            "cluster run prime 48"
+          ],
+          "finished": true,
+          "hub_t": [
+            361.88136459999987,
+            380.09843700000056
+          ],
+          "name": "prime",
+          "policy": "least",
+          "jobs": "48",
+          "makespan_ms": "18599",
+          "per_worker": "w1:55+w2:7",
+          "reassigned": "24",
+          "verified": "10",
+          "mismatches": "1",
+          "split": "2 VMs x 4 cores",
+          "correctness": {
+            "checked": 48,
+            "wrong": 0,
+            "accepted": 48
+          },
+          "window": [
+            361.3672802000001,
+            376.7497793000002
+          ],
+          "cpu_avg": {
+            "coord": 49.6,
+            "w1": 368.5,
+            "w2": 217.0,
+            "host": 64.2
+          }
+        },
+        {
+          "label": "failure: kill w2",
+          "cmds": [
+            "cluster run prime 64"
+          ],
+          "finished": true,
+          "hub_t": [
+            478.7951696,
+            540.1224751999998
+          ],
+          "name": "prime",
+          "policy": "least",
+          "jobs": "64",
+          "makespan_ms": "63179",
+          "per_worker": "w1:64+w2:0",
+          "reassigned": "8",
+          "verified": "0",
+          "mismatches": "0",
+          "split": "2 VMs x 4 cores",
+          "correctness": {
+            "checked": 64,
+            "wrong": 0,
+            "accepted": 64
+          },
+          "window": [
+            478.27353799999946,
+            539.9458188999997
+          ],
+          "cpu_avg": {
+            "coord": 4.2,
+            "w1": 297.2,
+            "w2": 12.4,
+            "host": 47.2
+          }
+        },
+        {
+          "label": "prime48 rep=0",
+          "cmds": [
+            "cluster run prime 48"
+          ],
+          "finished": true,
+          "hub_t": [
+            147.0376852999998,
+            156.18587189999926
+          ],
+          "name": "prime",
+          "policy": "least",
+          "jobs": "48",
+          "makespan_ms": "9699",
+          "per_worker": "w1:48",
+          "reassigned": "0",
+          "verified": "0",
+          "mismatches": "0",
+          "split": "1 VMs x 8 cores",
+          "correctness": {
+            "checked": 48,
+            "wrong": 0,
+            "accepted": 48
+          },
+          "window": [
+            146.1469606999999,
+            155.71251349999875
+          ],
+          "cpu_avg": {
+            "coord": 8.8,
+            "w1": 741.7,
+            "host": 71.9
+          }
+        },
+        {
+          "label": "prime48 rep=1",
+          "cmds": [
+            "cluster run prime 48"
+          ],
+          "finished": true,
+          "hub_t": [
+            185.75362329999916,
+            194.89088619999893
+          ],
+          "name": "prime",
+          "policy": "least",
+          "jobs": "48",
+          "makespan_ms": "9512",
+          "per_worker": "w1:48",
+          "reassigned": "0",
+          "verified": "0",
+          "mismatches": "0",
+          "split": "1 VMs x 8 cores",
+          "correctness": {
+            "checked": 48,
+            "wrong": 0,
+            "accepted": 48
+          },
+          "window": [
+            184.951866899999,
+            194.2346880999994
+          ],
+          "cpu_avg": {
+            "coord": 11.3,
+            "w1": 752.8,
+            "host": 71.8
+          }
+        },
+        {
+          "label": "prime48 rep=2",
+          "cmds": [
+            "cluster run prime 48"
+          ],
+          "finished": true,
+          "hub_t": [
+            224.39520230000016,
+            233.54109759999847
+          ],
+          "name": "prime",
+          "policy": "least",
+          "jobs": "48",
+          "makespan_ms": "9564",
+          "per_worker": "w1:48",
+          "reassigned": "0",
+          "verified": "0",
+          "mismatches": "0",
+          "split": "1 VMs x 8 cores",
+          "correctness": {
+            "checked": 48,
+            "wrong": 0,
+            "accepted": 48
+          },
+          "window": [
+            223.5532506999989,
+            232.90818539999964
+          ],
+          "cpu_avg": {
+            "coord": 9.3,
+            "w1": 765.5,
+            "host": 72.2
+          }
+        },
+        {
+          "label": "matmul96",
+          "cmds": [
+            "cluster run matmul 96"
+          ],
+          "finished": true,
+          "hub_t": [
+            264.52604639999845,
+            265.5548719999988
+          ],
+          "name": "matmul",
+          "policy": "least",
+          "jobs": "96",
+          "makespan_ms": "1976",
+          "per_worker": "w1:96",
+          "reassigned": "0",
+          "verified": "0",
+          "mismatches": "0",
+          "split": "1 VMs x 8 cores",
+          "correctness": {
+            "checked": 0,
+            "wrong": 0,
+            "accepted": 96
+          },
+          "window": [
+            263.71727459999966,
+            265.383774599999
+          ],
+          "cpu_avg": {
+            "coord": 56.4,
+            "w1": 250.9,
+            "host": 36.4
+          }
+        }
+      ]
+    }
+  },
+  "notes": "Same 8 compute cores split across VMs; each worker VM's core 0 runs shell and mesh."
+}

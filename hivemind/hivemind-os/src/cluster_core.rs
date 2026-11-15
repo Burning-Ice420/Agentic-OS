@@ -292,14 +292,16 @@ pub struct WorkerView {
     pub quarantined: bool,
     /// Exponential moving average of milliseconds per job (0 = unknown).
     pub ema_ms: u32,
+    /// Jobs the worker can run at once (its compute cores; 1 for a single-core VM).
+    pub slots: u32,
 }
 
 impl WorkerView {
     pub fn usable(&self) -> bool { self.alive && !self.quarantined }
 }
 
-/// Jobs a dynamic policy keeps in flight per worker: two hides the mesh latency
-/// without building queues that cannot be rebalanced.
+/// Jobs a dynamic policy keeps in flight per worker slot (core): two hides the
+/// mesh latency without building queues that cannot be rebalanced.
 pub const DEPTH: u32 = 2;
 
 /// Pick a worker for the next job, or None to wait. `seq` is the job's sequence
@@ -309,16 +311,20 @@ pub fn pick(policy: Policy, workers: &[WorkerView], seq: u64) -> Option<usize> {
     if usable.is_empty() { return None; }
     match policy {
         Policy::RoundRobin => Some(usable[(seq % usable.len() as u64) as usize]),
-        Policy::Least => usable.iter().copied().filter(|&i| workers[i].in_flight < DEPTH)
-            .min_by_key(|&i| (workers[i].in_flight, i)),
+        // fewest jobs per core; a worker with 4 cores holds up to 4x as many
+        Policy::Least => usable.iter().copied()
+            .filter(|&i| workers[i].in_flight < DEPTH * workers[i].slots.max(1))
+            .min_by_key(|&i| (workers[i].in_flight as u64 * 1000 / workers[i].slots.max(1) as u64, i)),
         Policy::Adaptive => {
             let known: Vec<u32> = usable.iter().map(|&i| workers[i].ema_ms).filter(|&m| m > 0).collect();
             let default = if known.is_empty() { 1 } else { known.iter().sum::<u32>() / known.len() as u32 };
             usable.iter().copied()
-                .filter(|&i| workers[i].in_flight < DEPTH + 1)
+                .filter(|&i| workers[i].in_flight < (DEPTH + 1) * workers[i].slots.max(1))
                 .min_by_key(|&i| {
                     let ms = if workers[i].ema_ms == 0 { default } else { workers[i].ema_ms } as u64;
-                    ((workers[i].in_flight as u64 + 1) * ms.max(1), i)
+                    // a new job waits for in_flight/slots jobs ahead of it on each core
+                    let rounds = workers[i].in_flight as u64 / workers[i].slots.max(1) as u64 + 1;
+                    (rounds * ms.max(1), i)
                 })
         }
     }

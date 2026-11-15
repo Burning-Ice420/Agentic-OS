@@ -482,7 +482,7 @@ mod cluster_tests {
     use crate::cluster_core::*;
 
     fn w(name: &str, inflight: u32, ema: u32) -> WorkerView {
-        WorkerView { name: name.into(), in_flight: inflight, alive: true, quarantined: false, ema_ms: ema }
+        WorkerView { name: name.into(), in_flight: inflight, alive: true, quarantined: false, ema_ms: ema, slots: 1 }
     }
 
     #[test]
@@ -537,6 +537,24 @@ mod cluster_tests {
         // a with two queued (300 ms) vs idle slow b (300 ms): tie -> lower index; idle b wins once a has 3
         let ws = vec![w("a", 3, 100), w("b", 0, 300)];
         assert_eq!(pick(Policy::Adaptive, &ws, 0), Some(1));
+    }
+
+    #[test]
+    fn workers_with_more_cores_get_proportionally_more() {
+        // a has 4 cores, b has 1: least keeps up to 8 in flight on a, 2 on b,
+        // and places by jobs per core
+        let mut ws = vec![w("a", 0, 0), w("b", 0, 0)];
+        ws[0].slots = 4;
+        let mut counts = [0u32; 2];
+        while let Some(i) = pick(Policy::Least, &ws, 0) {
+            ws[i].in_flight += 1;
+            counts[i] += 1;
+        }
+        assert_eq!(counts, [8, 2]);
+        // adaptive: same speed per job, the 4-core worker with 3 queued still finishes a new job first
+        let mut ws = vec![w("a", 3, 100), w("b", 1, 100)];
+        ws[0].slots = 4;
+        assert_eq!(pick(Policy::Adaptive, &ws, 0), Some(0));
     }
 
     #[test]

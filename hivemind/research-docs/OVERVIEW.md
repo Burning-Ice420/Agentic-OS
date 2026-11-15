@@ -154,7 +154,7 @@ Every feature should serve the core idea. Status: **core** (the thesis), **suppo
 ### Many machines (the cluster)
 | Feature | What it does | How it uses the core | Result |
 |---|---|---|---|
-| Hive cluster | a coordinator VM's kernel places jobs on up to 8 worker VMs (round robin, least loaded, speed-aware) | results are untrusted peer writes; a sample is re-run on another worker; a worker that lies is quarantined and its work redone; a silent worker's jobs are re-routed | 7.1x on 8 workers; 1.7x better than round robin with a slowed worker; liar caught; VM kill survived; 0 wrong results (CLUSTER.md) |
+| Hive cluster | a coordinator VM's kernel places jobs on up to 8 worker VMs (round robin, least loaded, speed-aware) | results are untrusted peer writes; a sample is re-run on another worker; a worker that lies is quarantined and its work redone; a silent worker's jobs are re-routed; a worker with several cores gets work per core | 7.1x on 8 workers; 1.7x better than round robin with a slowed worker; liar caught; VM kill survived; 0 wrong results (CLUSTER.md) |
 | Live dashboard | CPU per VM, throughput, a lane per worker | measured on the host, decisions made in the kernel | `python experiments/cluster_bench.py --live` |
 
 ### Many cores (one machine)
