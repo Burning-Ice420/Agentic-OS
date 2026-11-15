@@ -38,6 +38,8 @@ user-space services own policy analytics, search and measurement.**
 | threads: routing, focus, private threads | `threads.rs`, `threads_cmd.rs`, `threads_core.rs` | routing is a kernel rule; privacy is applied in `model_context` for every caller |
 | protected `threads` node (peer writes refused) | `hive/mod.rs` | a peer must not be able to change what is private (a live run showed ignoring its value was not enough) |
 | desktop double buffering | `vga_buffer.rs` | frames were captured mid-repaint |
+| cluster coordinator and worker | `cluster.rs`, `cluster_core.rs`, `cluster_cmd.rs` | placement, checking and quarantine act on results that arrive as peer writes; decisions are provenance events |
+| wake on mesh data (COM2 IRQ3) | `net/mod.rs` | lets idle nodes halt instead of polling, so CPU use reflects real work |
 
 Pure logic (`prov_core`, `cap_core`, `sched_core`, `apps_core`, `threads_core`) uses only `core` + `alloc` and is
 unit-tested on the host by the `hivemind-os-logic` crate, which compiles the kernel's

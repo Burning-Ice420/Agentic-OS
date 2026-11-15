@@ -42,6 +42,7 @@ python -m unittest discover -s services/tests -t .
 | Lineage across two guests on one mesh | `python experiments/two_vm_mesh.py` | measured |
 | Everyday apps, taint block/redact/quarantine, two boots | `python experiments/apps_live.py` | measured |
 | Life threads: routing, focus, private threads, two boots | `python experiments/threads_live.py` | measured |
+| Hive cluster: 9 VMs, scaling, placement, checking, failover | `python experiments/cluster_bench.py` (`--live` keeps the dashboard) | measured |
 
 Phases 3 real to 6 and the MVP need Ollama with `llama3.2:1b` and `llama3.2:3b`
 pulled (`ollama list`). Run guest experiments one at a time: each starts by killing

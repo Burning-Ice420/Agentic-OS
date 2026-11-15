@@ -151,6 +151,12 @@ Every feature should serve the core idea. Status: **core** (the thesis), **suppo
 | Threads and focus | routes items to work/home/health; focus holds other reminders | rules first, model only on no match, private threads |
 | Desktop | text-mode windows, F7 Tasks, F8 Notes, F9 Activity | the same apps, double-buffered |
 
+### Many machines (the cluster)
+| Feature | What it does | How it uses the core | Result |
+|---|---|---|---|
+| Hive cluster | a coordinator VM's kernel places jobs on up to 8 worker VMs (round robin, least loaded, speed-aware) | results are untrusted peer writes; a sample is re-run on another worker; a worker that lies is quarantined and its work redone; a silent worker's jobs are re-routed | 7.1x on 8 workers; 1.7x better than round robin with a slowed worker; liar caught; VM kill survived; 0 wrong results (CLUSTER.md) |
+| Live dashboard | CPU per VM, throughput, a lane per worker | measured on the host, decisions made in the kernel | `python experiments/cluster_bench.py --live` |
+
 ### Foundation (support)
 Memory graph with typed edges (Sync, Signal, Mirror, Dependency); agents as
 edge-triggered rules (they cannot run arbitrary code); mesh between instances (COM2);
@@ -222,6 +228,10 @@ happened: security researchers, red teams, teams building agent platforms. For
 personal use, it is a demonstration that your notes and tasks can use an AI without
 private areas or planted text reaching it.
 
+**Can it use all my CPU cores?** Yes, by running several HiveMind VMs as a cluster: 8
+workers gave a 7.1x speedup on 8 cores, and the coordinator's kernel moves work away
+from a slowed worker. One kernel on its own still uses one core.
+
 **What does it cost?** Recording is about 1.43x a plain write. Shipping each event over
 the emulated serial port is the expensive part (about 229x, 1.3 ms per event); a
 shared-memory channel would fix it and is not built.
@@ -241,6 +251,8 @@ shared-memory channel would fix it and is not built.
 * Agents inside one instance share one kernel; isolation between workloads comes from
   running separate VMs. Per-agent VM density has not been measured.
 * Phase 3 real runs were inconclusive; several studies are negative results.
+* Each kernel is single-core. The cluster gets parallelism by running one VM per host
+  core; there is no multi-core (SMP) support inside one kernel yet.
 
 ---
 
@@ -253,6 +265,7 @@ shared-memory channel would fix it and is not built.
 | THREAT_MODEL.md | who is trusted, what attacks are in scope, known gaps |
 | APPS_AND_TAINT.md | how to use tasks, notes, ask, why, taint, quarantine |
 | THREADS.md | threads, focus, private threads |
+| CLUSTER.md, cluster-report.html | several VMs sharing work: scaling, placement, checking, failover |
 | TRACE_DEMO.md | a provenance chain walked end to end |
 | PROVENANCE_SCHEMA.md | the event format |
 | BENCHMARK_PROTOCOL.md, ENERGY_METHOD.md | how measurements are taken and labelled |

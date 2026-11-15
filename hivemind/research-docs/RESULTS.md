@@ -121,6 +121,36 @@ What this does not show: one run; one model; an item that no rule matches is sho
 model to be routed (use keywords, `#tag` or `thread model off` for sensitive areas);
 keyword matching is literal.
 
+## Hive cluster: 8 worker VMs + 1 coordinator (measured, real guests)
+`cluster_bench-20261115-105427.json` (final), `cluster_bench-20261115-102540.json` (first run,
+older verification design). Guide: CLUSTER.md. Charts: cluster-report.html. Laptop:
+i5-13420H, 12 logical CPUs. One repetition per configuration. Every compute result
+was checked against a host-side computation: **0 wrong in the final record**.
+
+| Run (final record) | Time | Note |
+|---|---|---|
+| 48 prime jobs, 1 / 2 / 4 / 8 workers | 55.5 / 26.4 / 13.3 / 7.8 s | **7.1x on 8 workers** (89% efficiency); workers at 87 to 98% of a core |
+| 96 tiny matmul jobs, 1 vs 8 workers | 4.7 vs 2.9 s | only 1.6x: the serial mesh round trip outweighs a job of milliseconds |
+| slowed w1 (shares a core with a hog), 4 workers: rr / least / adaptive | 26.8 / 15.8 / 18.8 s | load-aware placement **1.7x** faster than round robin |
+| 12 model calls, 1 vs 4 workers | 42.4 vs 13.1 s | 3.2x, one Ollama behind all workers |
+| pipeline: 8 map jobs, reduce on coordinator, AI report | 4.8 s | sum 449,202 = host count; model: "There are 449,202 primes in the range." |
+| honest workers, re-check 25% on another worker | 9.1 s vs 7.8 s | about 16% overhead |
+| w2 corrupts 1 in 5, re-check 25% | 10.4 s | caught after one bad result, quarantined, 6 jobs re-run; final 48/48 correct |
+| w2 corrupts 1 in 5, re-check 100% | 14.3 s | caught; every job ran twice |
+| worker VM killed 4 s into 64 jobs | 9.3 s | lost after 3.5 s of silence, 2 jobs re-routed, 64/64 correct |
+
+* **Negative / mixed:** speed-aware placement was not reliably better than least loaded
+  (14.5 vs 15.3 s in the first run, 18.8 vs 15.8 s in the final one).
+* **Found in the first run:** with the coordinator re-running samples itself, 25%
+  checking missed w2's single bad result and it was accepted (1 wrong of 48), and the
+  checks made the run 2.7x slower because one core did them serially. Checks now run on
+  another worker, and the coordinator only recomputes when two workers disagree. Sampled
+  checking stays probabilistic.
+* **Found in the first run:** the coordinator spun at ~98% of a core during runs. It now
+  halts and is woken by the mesh receive interrupt: 4 to 21% during runs. Cost: tiny-job
+  scaling fell from 2.1x to 1.6x (wake-up latency).
+* Each kernel is single-core; parallelism comes from one VM per host core.
+
 ## Phase 3: workflow scheduler
 **Simulated** (`phase3_sim-20261114-202956.json`, 10 seeds, 200 workflows; model call
 durations derived from measured latency). Deadline miss rate, mean ± 95% CI:
